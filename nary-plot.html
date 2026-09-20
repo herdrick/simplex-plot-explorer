@@ -237,6 +237,24 @@
     color: var(--accent-hover);
     text-decoration-color: var(--accent-hover);
   }
+  .about {
+    max-width: 620px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink-muted);
+  }
+  .about h2 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .about p { margin: 0 0 10px; }
+  .about p:last-child { margin-bottom: 0; }
+  .about a { color: var(--live); text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
+  .about a:hover { color: var(--accent-hover); text-decoration-color: var(--accent-hover); }
+  .about ul { margin: 6px 0 10px; padding-left: 18px; }
+  .about li { margin-bottom: 3px; }
 </style>
 </head>
 <body>
@@ -284,6 +302,35 @@
         <div class="empty-note" id="emptyNote">No points set yet.</div>
       </div>
     </div>
+  </div>
+
+  <div class="about">
+    <h2>How points with more than 4 dimensions are placed</h2>
+    <p>
+      A triangle or tetrahedron can hold 3 or 4 dimensions exactly, with no ambiguity: every point
+      inside corresponds to exactly one composition, and vice versa. Past 4 dimensions there's no
+      way to keep that exactness in 3D space — 3 coordinates just can't losslessly encode 4+ numbers
+      that sum to 1. So for 5+ dimensions, this plot switches to a different, well-known technique
+      called <strong>RadViz</strong> (radial visualization, also called a "spring" or "star"
+      layout): each dimension gets its own anchor point spread around a sphere, and a composition's
+      position is the weighted average of those anchors — as if each anchor pulled the point toward
+      it with a spring whose strength is that dimension's value. RadViz was originally described for
+      2D (anchors on a circle); what's shown here for n≥5 is the natural 3D extension (anchors on a
+      sphere instead of a circle).
+    </p>
+    <p>
+      The tradeoff is real: RadViz is a many-to-one projection, so distinct compositions can end up
+      looking close together or even identical in position — it's good for an at-a-glance feel for
+      where a composition sits, not for reading exact values off the picture (that's what the
+      calculation panel above is for; it's always exact, regardless of N).
+    </p>
+    <p>Where this shows up elsewhere:</p>
+    <ul>
+      <li><a href="https://www.visualizing.org/radviz" target="_blank" rel="noopener">RadViz: What It Is, How to Read &amp; Examples</a> — a plain-language walkthrough of the standard 2D technique.</li>
+      <li><a href="https://arxiv.org/abs/2110.09971" target="_blank" rel="noopener">Fully Three-dimensional Radial Visualization</a> — an academic paper on exactly this 3D generalization (anchors on a sphere).</li>
+      <li><a href="https://orange3.readthedocs.io/projects/orange-visual-programming/en/latest/widgets/visualize/radviz.html" target="_blank" rel="noopener">RadViz — Orange Visual Programming docs</a> — RadViz as a ready-to-use widget in a real data-mining tool.</li>
+      <li><a href="https://cran.r-project.org/web/packages/Radviz/vignettes/single_cell_projections.html" target="_blank" rel="noopener">Visualizing Multivariate Data with Radviz (CRAN)</a> — RadViz applied to real compositional data (single-cell biology).</li>
+    </ul>
   </div>
 
   <footer class="nav-links">
