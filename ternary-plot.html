@@ -50,6 +50,11 @@
     flex-wrap: wrap;
     justify-content: center;
   }
+  .plots-col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -224,9 +229,16 @@
   <h1>Ternary Plot Explorer</h1>
 
   <div class="layout">
-    <div class="panel" id="plotWrap">
-      <svg id="plot" width="420" height="420" viewBox="0 0 420 420"></svg>
-      <div class="tooltip" id="tooltip"></div>
+    <div class="plots-col">
+      <div class="panel" id="plotWrap">
+        <svg id="plot" width="420" height="420" viewBox="0 0 420 420"></svg>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+
+      <div class="panel" id="plot3dWrap">
+        <canvas id="plot3d" width="420" height="420"></canvas>
+        <div class="tooltip" id="tooltip3d"></div>
+      </div>
     </div>
 
     <div class="panel controls">
@@ -272,11 +284,6 @@
         <div class="empty-note" id="emptyNote">No points set yet.</div>
       </div>
     </div>
-  </div>
-
-  <div class="panel" id="plot3dWrap">
-    <canvas id="plot3d" width="420" height="420"></canvas>
-    <div class="tooltip" id="tooltip3d"></div>
   </div>
 
   <footer class="nav-links">
