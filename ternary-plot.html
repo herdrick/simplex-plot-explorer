@@ -239,9 +239,6 @@
       <button id="setBtn">Add point (shortcut: 's')</button>
 
       <div>
-        <div class="label-line" style="margin-bottom:6px;">
-          <span class="name">Show calculation</span>
-        </div>
         <div class="segmented">
           <button data-mode="side">From side</button>
           <button data-mode="corner">From corner</button>
@@ -477,9 +474,10 @@
     return swatchRow(v.color, v.key.toUpperCase(), `1 - ${px(dXP)} / ${px(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(1 - dXP / dXQ)}`);
   }
 
-  function renderConstruction() {
+  function renderConstruction(pointOverride) {
     constructionGroup.innerHTML = '';
-    const P = barycentricToPoint(state.a, state.b, state.c);
+    const src = pointOverride || state;
+    const P = barycentricToPoint(src.a, src.b, src.c);
     const sideRows = [], cornerRows = [];
 
     CONSTRUCTION_VERTS.forEach((v) => {
@@ -763,6 +761,22 @@
     renderSetPoints();
   }
 
+  function highlightPoint(i) {
+    const el2d = setPointsGroup.children[i];
+    if (el2d) { el2d.setAttribute('r', '9'); el2d.setAttribute('stroke-width', '3'); }
+    const mesh3d = setPointsGroup3d.children[i];
+    if (mesh3d) { mesh3d.scale.setScalar(1.6); render3d(); }
+    renderConstruction(setPoints[i]);
+  }
+
+  function unhighlightPoint(i) {
+    const el2d = setPointsGroup.children[i];
+    if (el2d) { el2d.setAttribute('r', '6'); el2d.setAttribute('stroke-width', '1.5'); }
+    const mesh3d = setPointsGroup3d.children[i];
+    if (mesh3d) { mesh3d.scale.setScalar(1); render3d(); }
+    renderConstruction();
+  }
+
   function renderSetPoints() {
     // svg markers
     setPointsGroup.innerHTML = '';
@@ -796,6 +810,8 @@
         setPoints.splice(i, 1);
         renderSetPoints();
       });
+      li.addEventListener('mouseenter', () => highlightPoint(i));
+      li.addEventListener('mouseleave', () => unhighlightPoint(i));
       li.appendChild(coords);
       li.appendChild(removeBtn);
       pointList.appendChild(li);
