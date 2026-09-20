@@ -353,8 +353,9 @@
   const V2 = new THREE.Vector3(0, 0, 1); // C
   const ORIGIN3 = new THREE.Vector3(0, 0, 0);
 
+  const AXIS_EXTENT = 1.35; // extend axis lines past the unit vertex
   function addAxis3(to, color) {
-    const geo = new THREE.BufferGeometry().setFromPoints([ORIGIN3, to]);
+    const geo = new THREE.BufferGeometry().setFromPoints([ORIGIN3, to.clone().multiplyScalar(AXIS_EXTENT)]);
     scene3d.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color })));
   }
   addAxis3(V0, 0xc0392b);
@@ -399,9 +400,10 @@
     sprite.renderOrder = 10;
     return sprite;
   }
-  const labelA3 = makeLabelSprite3('A', '#c0392b'); labelA3.position.set(1.14, 0, 0); scene3d.add(labelA3);
-  const labelB3 = makeLabelSprite3('B', '#1f6f43'); labelB3.position.set(0, 1.14, 0); scene3d.add(labelB3);
-  const labelC3 = makeLabelSprite3('C', '#22559c'); labelC3.position.set(0, 0, 1.14); scene3d.add(labelC3);
+  const LABEL_EXTENT = AXIS_EXTENT + 0.14;
+  const labelA3 = makeLabelSprite3('A', '#c0392b'); labelA3.position.set(LABEL_EXTENT, 0, 0); scene3d.add(labelA3);
+  const labelB3 = makeLabelSprite3('B', '#1f6f43'); labelB3.position.set(0, LABEL_EXTENT, 0); scene3d.add(labelB3);
+  const labelC3 = makeLabelSprite3('C', '#22559c'); labelC3.position.set(0, 0, LABEL_EXTENT); scene3d.add(labelC3);
 
   const liveSphere = new THREE.Mesh(
     new THREE.SphereGeometry(0.032, 24, 16),
