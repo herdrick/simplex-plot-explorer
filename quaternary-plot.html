@@ -292,6 +292,17 @@
 
       <div>
         <div class="label-line" style="margin-bottom:6px;">
+          <span class="name">Gridlines</span>
+        </div>
+        <div class="segmented">
+          <button data-grid="all" class="active">All gridlines</button>
+          <button data-grid="faces">Gridlines on faces</button>
+          <button data-grid="none">None</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="label-line" style="margin-bottom:6px;">
           <span class="name">Points</span>
           <span id="countLabel" style="color:var(--ink-muted);">0</span>
         </div>
@@ -393,7 +404,7 @@
   scene.add(new THREE.LineSegments(edgesGeom, edgesMat));
 
   // Grid lines on each face, 10% intervals parallel to each edge
-  const gridPoints = [];
+  const faceGridPoints = [];
   for (const key of Object.keys(FACES)) {
     const [k0, k1, k2] = FACES[key].map(k => V[k]);
     for (let i = 1; i < 10; i++) {
@@ -406,13 +417,43 @@
       for (const [sa, sb, sc, sd] of pairs) {
         const p1 = new THREE.Vector3().lerpVectors(sa, sb, t);
         const p2 = new THREE.Vector3().lerpVectors(sc, sd, t);
-        gridPoints.push(p1, p2);
+        faceGridPoints.push(p1, p2);
       }
     }
   }
-  const gridGeom = new THREE.BufferGeometry().setFromPoints(gridPoints);
-  const gridMat = new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 });
-  scene.add(new THREE.LineSegments(gridGeom, gridMat));
+  const faceGridGeom = new THREE.BufferGeometry().setFromPoints(faceGridPoints);
+  const faceGridMat = new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.35 });
+  const faceGridObj = new THREE.LineSegments(faceGridGeom, faceGridMat);
+  scene.add(faceGridObj);
+
+  // Internal grid lines: for each vertex K, level sets of K's barycentric weight at
+  // 10% intervals form triangles parallel to the opposite face, shrinking toward K.
+  const internalGridPoints = [];
+  for (const key of Object.keys(FACES)) {
+    const K = V[key];
+    const others = FACES[key].map(k => V[k]);
+    for (let i = 1; i < 10; i++) {
+      const t = i / 10;
+      const [p0, p1, p2] = others.map(Vi => new THREE.Vector3().lerpVectors(Vi, K, t));
+      internalGridPoints.push(p0, p1, p1, p2, p2, p0);
+    }
+  }
+  const internalGridGeom = new THREE.BufferGeometry().setFromPoints(internalGridPoints);
+  const internalGridMat = new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.18 });
+  const internalGridObj = new THREE.LineSegments(internalGridGeom, internalGridMat);
+  scene.add(internalGridObj);
+
+  function setGridMode(mode) {
+    faceGridObj.visible = mode === 'all' || mode === 'faces';
+    internalGridObj.visible = mode === 'all';
+  }
+  setGridMode('all');
+  document.querySelectorAll('[data-grid]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setGridMode(btn.dataset.grid);
+      document.querySelectorAll('[data-grid]').forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
 
   // Live point
   const liveSphere = new THREE.Mesh(

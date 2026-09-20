@@ -283,6 +283,15 @@
       </div>
 
       <div>
+        <div class="section-title">Gridlines</div>
+        <div class="segmented">
+          <button data-grid="all" class="active">All gridlines</button>
+          <button data-grid="faces">Gridlines on faces</button>
+          <button data-grid="none">None</button>
+        </div>
+      </div>
+
+      <div>
         <div class="section-title" style="display:flex; justify-content:space-between; margin-bottom:6px;">
           <span>Points</span>
           <span id="countLabel" style="color:var(--ink-muted); text-transform:none; font-weight:600;">0</span>
@@ -777,9 +786,10 @@
   }
 
   // --- Scene geometry: rebuilt whenever the corner count (3 vs 4) changes ---
-  let faceMesh = null, edgesObj = null, gridObj = null;
+  let faceMesh = null, edgesObj = null, faceGridObj = null, internalGridObj = null;
   let faceList = null; // 4-corner mode only: [{ opposite: 'A', verts: ['B','C','D'] }, ...]
   let trianglePlane = null; // 3-corner mode only
+  let gridMode = 'all';
 
   function disposeObj(o) {
     if (!o) return;
@@ -788,8 +798,20 @@
     o.material.dispose();
   }
 
+  function setGridMode(mode) {
+    gridMode = mode;
+    if (faceGridObj) faceGridObj.visible = mode === 'all' || mode === 'faces';
+    if (internalGridObj) internalGridObj.visible = mode === 'all';
+  }
+  document.querySelectorAll('[data-grid]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setGridMode(btn.dataset.grid);
+      document.querySelectorAll('[data-grid]').forEach((b) => b.classList.toggle('active', b === btn));
+    });
+  });
+
   function buildSceneGeometry() {
-    disposeObj(faceMesh); disposeObj(edgesObj); disposeObj(gridObj);
+    disposeObj(faceMesh); disposeObj(edgesObj); disposeObj(faceGridObj); disposeObj(internalGridObj);
     faceList = null; trianglePlane = null;
 
     const keys = activeKeys();
@@ -821,22 +843,44 @@
     edgesObj = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: 0x9a9a94 }));
     scene.add(edgesObj);
 
-    const gridPoints = [];
+    const faceGridPoints = [];
     faceDefs.forEach(([k0, k1, k2]) => {
       const p0 = V[k0], p1 = V[k1], p2 = V[k2];
       for (let i = 1; i < 10; i++) {
         const t = i / 10;
         const pairs = [[p0, p1, p0, p2], [p1, p0, p1, p2], [p2, p0, p2, p1]];
         pairs.forEach(([sa, sb, sc, sd]) => {
-          gridPoints.push(new THREE.Vector3().lerpVectors(sa, sb, t), new THREE.Vector3().lerpVectors(sc, sd, t));
+          faceGridPoints.push(new THREE.Vector3().lerpVectors(sa, sb, t), new THREE.Vector3().lerpVectors(sc, sd, t));
         });
       }
     });
-    gridObj = new THREE.LineSegments(
-      new THREE.BufferGeometry().setFromPoints(gridPoints),
-      new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 })
+    faceGridObj = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(faceGridPoints),
+      new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.35 })
     );
-    scene.add(gridObj);
+    scene.add(faceGridObj);
+
+    // Internal grid lines (tetra only): level sets of each vertex's barycentric weight
+    // at 10% intervals form triangles parallel to the opposite face, shrinking toward it.
+    const internalGridPoints = [];
+    if (isTetra) {
+      faceList.forEach(({ opposite, verts }) => {
+        const K = V[opposite];
+        const others = verts.map(k => V[k]);
+        for (let i = 1; i < 10; i++) {
+          const t = i / 10;
+          const [p0, p1, p2] = others.map(Vi => new THREE.Vector3().lerpVectors(Vi, K, t));
+          internalGridPoints.push(p0, p1, p1, p2, p2, p0);
+        }
+      });
+    }
+    internalGridObj = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(internalGridPoints),
+      new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.18 })
+    );
+    scene.add(internalGridObj);
+
+    setGridMode(gridMode);
 
     hint.textContent = isTetra
       ? 'drag = rotate · click a face = set point · shift+scroll = pull inward'
