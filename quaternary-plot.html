@@ -166,6 +166,50 @@
   }
   #pointList li button:hover { color: var(--set); }
   .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .segmented {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .segmented button {
+    flex: 1;
+    border: none;
+    background: var(--panel);
+    color: var(--ink-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 4px;
+    cursor: pointer;
+    border-left: 1px solid var(--border);
+  }
+  .segmented button:first-child { border-left: none; }
+  .segmented button.active {
+    background: var(--ink);
+    color: white;
+  }
+  .formula {
+    font-size: 12px;
+    color: var(--ink-muted);
+    line-height: 1.5;
+    min-height: 34px;
+  }
+  .formula b { color: var(--ink); }
+  .calc-heading {
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .calc-heading:first-child { margin-top: 0; }
+  .calc-row {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--ink);
+    padding: 1px 0;
+    line-height: 1.5;
+  }
+  .calc-row .rowhead { white-space: nowrap; }
+  .calc-row .swatch { margin-right: 5px; }
   .tooltip {
     position: absolute;
     pointer-events: none;
@@ -222,6 +266,15 @@
       </div>
 
       <button id="setBtn">Add point (shortcut: 's')</button>
+
+      <div>
+        <div class="segmented">
+          <button data-mode="face">From face</button>
+          <button data-mode="corner">From corner</button>
+          <button data-mode="both" class="active">Both</button>
+        </div>
+        <div class="formula" id="formulaText"></div>
+      </div>
 
       <div>
         <div class="label-line" style="margin-bottom:6px;">
@@ -354,6 +407,111 @@
   const setPointsGroup = new THREE.Group();
   scene.add(setPointsGroup);
 
+  // --- Construction overlay: visualizes how a/b/c/d are computed ---
+  // Each barycentric weight can be read two equivalent ways:
+  //  - "from face": how far P is from the opposite face, relative to the vertex's height
+  //  - "from corner": how far along the vertex-through-P ray P sits before it reaches
+  //    the opposite face
+  const constructionGroup = new THREE.Group();
+  scene.add(constructionGroup);
+  let constructionMode = 'both';
+
+  const CONSTRUCTION_VERTS = KEYS.map((k) => {
+    const upper = k.toUpperCase();
+    const [f0, f1, f2] = FACES[upper].map(fk => V[fk]);
+    const plane = new THREE.Plane().setFromCoplanarPoints(f0, f1, f2);
+    const footFromVertex = plane.projectPoint(V[upper], new THREE.Vector3());
+    const height = V[upper].distanceTo(footFromVertex);
+    const color = VERTEX_COLORS[upper];
+    return { key: k, upper, X: V[upper], plane, footFromVertex, height, color, colorHex: parseInt(color.slice(1), 16) };
+  });
+
+  const METHOD_COLOR = { face: '#7c3aed', corner: '#0d9488' };
+  const METHOD_COLOR_HEX = { face: 0x7c3aed, corner: 0x0d9488 };
+  const formulaText = document.getElementById('formulaText');
+  const FACE_TEMPLATE = 'value = distance(P, opposite face) ÷ height from vertex';
+  const CORNER_TEMPLATE = 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P hits the opposite face)';
+
+  function pct(n) { return Math.round(n * 100) + '%'; }
+  function un(n) { return n.toFixed(2); }
+
+  function swatchRow(color, label, html) {
+    return `<div class="calc-row"><span class="rowhead"><span class="swatch" style="background:${color}"></span><b>${label}</b> =</span> ${html}</div>`;
+  }
+
+  function addLine3(p1, p2, colorHex, opacity) {
+    const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: opacity != null, opacity: opacity != null ? opacity : 1 });
+    constructionGroup.add(new THREE.Line(geo, mat));
+  }
+
+  function addTick3(p, colorHex) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshBasicMaterial({ color: colorHex }));
+    mesh.position.copy(p);
+    constructionGroup.add(mesh);
+  }
+
+  function drawFaceConstruction(v, P, colorHex, colorCss) {
+    const foot = v.plane.projectPoint(P, new THREE.Vector3());
+    const d = foot.distanceTo(P);
+    const value = v.height > 0 ? d / v.height : 0;
+    addLine3(v.X, v.footFromVertex, colorHex, 0.35);
+    addLine3(P, foot, colorHex);
+    addTick3(foot, colorHex);
+    return swatchRow(colorCss, v.upper, `${un(d)} / ${un(v.height)} = ${pct(value)}`);
+  }
+
+  function drawCornerConstruction(v, P, colorHex, colorCss) {
+    const dir = new THREE.Vector3().subVectors(P, v.X);
+    if (dir.lengthSq() < 1e-9) return '';
+    dir.normalize();
+    const ray = new THREE.Ray(v.X, dir);
+    const Q = new THREE.Vector3();
+    if (!ray.intersectPlane(v.plane, Q)) return '';
+    const dXP = v.X.distanceTo(P);
+    const dXQ = v.X.distanceTo(Q);
+    const value = 1 - dXP / dXQ;
+    addLine3(v.X, P, colorHex);
+    addLine3(P, Q, colorHex, 0.55);
+    addTick3(Q, colorHex);
+    return swatchRow(colorCss, v.upper, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
+  }
+
+  function renderConstruction(pointOverride) {
+    constructionGroup.clear();
+    const src = pointOverride || state;
+    const P = barycentricToPoint3(src.a, src.b, src.c, src.d);
+    const faceRows = [], cornerRows = [];
+
+    CONSTRUCTION_VERTS.forEach((v) => {
+      if (constructionMode === 'face') {
+        faceRows.push(drawFaceConstruction(v, P, v.colorHex, v.color));
+      } else if (constructionMode === 'corner') {
+        cornerRows.push(drawCornerConstruction(v, P, v.colorHex, v.color));
+      } else {
+        faceRows.push(drawFaceConstruction(v, P, METHOD_COLOR_HEX.face, METHOD_COLOR.face));
+        cornerRows.push(drawCornerConstruction(v, P, METHOD_COLOR_HEX.corner, METHOD_COLOR.corner));
+      }
+    });
+
+    let html = '';
+    if (faceRows.length) {
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.face}">${FACE_TEMPLATE}</div>${faceRows.join('')}`;
+    }
+    if (cornerRows.length) {
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE}</div>${cornerRows.join('')}`;
+    }
+    formulaText.innerHTML = html;
+  }
+
+  document.querySelectorAll('.segmented button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      constructionMode = btn.dataset.mode;
+      document.querySelectorAll('.segmented button').forEach((b) => b.classList.toggle('active', b === btn));
+      renderConstruction();
+    });
+  });
+
   // Vertex labels (HTML overlay, billboarded via projection each frame)
   const labelEls = {};
   for (const key of Object.keys(V)) {
@@ -407,6 +565,7 @@
   function renderLivePoint() {
     const p = barycentricToPoint3(state.a, state.b, state.c, state.d);
     liveSphere.position.copy(p);
+    renderConstruction();
   }
 
   function renderSliders() {
@@ -548,6 +707,18 @@
     updateCamera();
   }, { passive: false });
 
+  function highlightPoint(i) {
+    const mesh = setPointsGroup.children[i];
+    if (mesh) mesh.scale.setScalar(1.6);
+    renderConstruction(setPoints[i]);
+  }
+
+  function unhighlightPoint(i) {
+    const mesh = setPointsGroup.children[i];
+    if (mesh) mesh.scale.setScalar(1);
+    renderConstruction();
+  }
+
   // Set Point
   function recordPoint() {
     const pt = { a: state.a, b: state.b, c: state.c, d: state.d };
@@ -583,6 +754,8 @@
       });
       li.appendChild(coords);
       li.appendChild(removeBtn);
+      li.addEventListener('mouseenter', () => highlightPoint(i));
+      li.addEventListener('mouseleave', () => unhighlightPoint(i));
       pointList.appendChild(li);
     });
 
