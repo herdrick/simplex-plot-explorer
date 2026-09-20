@@ -145,6 +145,35 @@
   }
   #pointList li button:hover { color: var(--set); }
   .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .segmented {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .segmented button {
+    flex: 1;
+    border: none;
+    background: var(--panel);
+    color: var(--ink-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 4px;
+    cursor: pointer;
+    border-left: 1px solid var(--border);
+  }
+  .segmented button:first-child { border-left: none; }
+  .segmented button.active {
+    background: var(--ink);
+    color: white;
+  }
+  .formula {
+    font-size: 12px;
+    color: var(--ink-muted);
+    line-height: 1.5;
+    min-height: 34px;
+  }
+  .formula b { color: var(--ink); }
   .tooltip {
     position: absolute;
     pointer-events: none;
@@ -193,6 +222,18 @@
       </div>
 
       <button id="setBtn">Add point (shortcut: 's')</button>
+
+      <div>
+        <div class="label-line" style="margin-bottom:6px;">
+          <span class="name">Show calculation</span>
+        </div>
+        <div class="segmented">
+          <button data-mode="none" class="active">Off</button>
+          <button data-mode="side">From side</button>
+          <button data-mode="corner">From corner</button>
+        </div>
+        <div class="formula" id="formulaText"></div>
+      </div>
 
       <div>
         <div class="label-line" style="margin-bottom:6px;">
@@ -315,6 +356,114 @@
   label('A', A_V.x, A_V.y - 14, '#c0392b');
   label('B', B_V.x - 14, B_V.y + 18, '#1f6f43');
   label('C', C_V.x + 14, C_V.y + 18, '#22559c');
+
+  // --- Construction overlay: visualizes how a/b/c are computed ---
+  const constructionGroup = document.createElementNS(NS, 'g');
+  svg.appendChild(constructionGroup);
+  let constructionMode = 'none';
+
+  function footOfPerpendicular(p, a, b) {
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby;
+    const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
+    return { x: a.x + t * abx, y: a.y + t * aby };
+  }
+
+  function lineIntersect(p1, p2, p3, p4) {
+    const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+    if (Math.abs(denom) < 1e-9) return null;
+    const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+    return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) };
+  }
+
+  function dist(p, q) { return Math.hypot(p.x - q.x, p.y - q.y); }
+
+  function svgLine(p1, p2, color, opts) {
+    opts = opts || {};
+    const el = document.createElementNS(NS, 'line');
+    el.setAttribute('x1', p1.x); el.setAttribute('y1', p1.y);
+    el.setAttribute('x2', p2.x); el.setAttribute('y2', p2.y);
+    el.setAttribute('stroke', color);
+    el.setAttribute('stroke-width', opts.width || 1.6);
+    if (opts.dashed) el.setAttribute('stroke-dasharray', opts.dash || '4 3');
+    if (opts.opacity != null) el.setAttribute('opacity', opts.opacity);
+    constructionGroup.appendChild(el);
+  }
+
+  function svgTick(p, color) {
+    const el = document.createElementNS(NS, 'circle');
+    el.setAttribute('cx', p.x); el.setAttribute('cy', p.y);
+    el.setAttribute('r', 3.5);
+    el.setAttribute('fill', 'white');
+    el.setAttribute('stroke', color);
+    el.setAttribute('stroke-width', 2);
+    constructionGroup.appendChild(el);
+  }
+
+  function svgLabel(p, text, color) {
+    const el = document.createElementNS(NS, 'text');
+    el.setAttribute('x', p.x); el.setAttribute('y', p.y);
+    el.setAttribute('text-anchor', 'middle');
+    el.setAttribute('font-size', '11');
+    el.setAttribute('font-weight', '700');
+    el.setAttribute('fill', color);
+    el.setAttribute('paint-order', 'stroke');
+    el.setAttribute('stroke', 'white');
+    el.setAttribute('stroke-width', '3');
+    el.textContent = text;
+    constructionGroup.appendChild(el);
+  }
+
+  const CONSTRUCTION_VERTS = [
+    { key: 'a', X: A_V, Y: B_V, Z: C_V, color: '#c0392b' },
+    { key: 'b', X: B_V, Y: A_V, Z: C_V, color: '#1f6f43' },
+    { key: 'c', X: C_V, Y: A_V, Z: B_V, color: '#22559c' },
+  ];
+
+  const formulaText = document.getElementById('formulaText');
+  const FORMULAS = {
+    none: '',
+    side: 'value = distance from P to the opposite side ÷ the triangle’s height from that vertex.',
+    corner: 'value = 1 − |vertex → P| ÷ |vertex → Q|, where Q is where the line through the vertex and P meets the opposite side.',
+  };
+
+  function renderConstruction() {
+    constructionGroup.innerHTML = '';
+    formulaText.textContent = FORMULAS[constructionMode];
+    if (constructionMode === 'none') return;
+    const P = barycentricToPoint(state.a, state.b, state.c);
+
+    CONSTRUCTION_VERTS.forEach((v) => {
+      const value = state[v.key];
+      const pct = Math.round(value * 100) + '%';
+      if (constructionMode === 'side') {
+        const foot = footOfPerpendicular(P, v.Y, v.Z);
+        const footFromVertex = footOfPerpendicular(v.X, v.Y, v.Z);
+        // faint reference line: the full height this distance is measured against
+        svgLine(v.X, footFromVertex, v.color, { dashed: true, dash: '2 4', width: 1, opacity: 0.35 });
+        svgLine(P, foot, v.color, { width: 2 });
+        svgTick(foot, v.color);
+        const out = { x: foot.x + (foot.x - v.X.x) * 0.09, y: foot.y + (foot.y - v.X.y) * 0.09 };
+        svgLabel(out, pct, v.color);
+      } else if (constructionMode === 'corner') {
+        const Q = lineIntersect(v.X, P, v.Y, v.Z);
+        if (!Q) return;
+        svgLine(v.X, P, v.color, { width: 2 });
+        svgLine(P, Q, v.color, { dashed: true, width: 1.6 });
+        svgTick(Q, v.color);
+        const out = { x: Q.x + (Q.x - v.X.x) * 0.09, y: Q.y + (Q.y - v.X.y) * 0.09 };
+        svgLabel(out, pct, v.color);
+      }
+    });
+  }
+
+  document.querySelectorAll('.segmented button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      constructionMode = btn.dataset.mode;
+      document.querySelectorAll('.segmented button').forEach((b) => b.classList.toggle('active', b === btn));
+      renderConstruction();
+    });
+  });
 
   // --- Dynamic layer: set points + live point ---
   const setPointsGroup = document.createElementNS(NS, 'g');
@@ -504,6 +653,7 @@
     liveCircle.setAttribute('cx', p.x);
     liveCircle.setAttribute('cy', p.y);
     render3DLive(state.a, state.b, state.c);
+    renderConstruction();
   }
 
   function renderSliders() {
