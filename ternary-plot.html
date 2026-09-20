@@ -211,6 +211,7 @@
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script>
 (function () {
   const svg = document.getElementById('plot');
@@ -339,6 +340,14 @@
   camera3d.position.set(3.0, 2.0, 2.2);
   camera3d.lookAt(0, 0, 0);
 
+  const controls3d = new THREE.OrbitControls(camera3d, canvas3d);
+  controls3d.target.set(0, 0, 0);
+  controls3d.enableDamping = false;
+  controls3d.minDistance = 1.2;
+  controls3d.maxDistance = 6;
+  controls3d.update();
+  controls3d.addEventListener('change', () => render3d());
+
   const V0 = new THREE.Vector3(1, 0, 0); // A
   const V1 = new THREE.Vector3(0, 1, 0); // B
   const V2 = new THREE.Vector3(0, 0, 1); // C
@@ -451,6 +460,9 @@
   const plot3dWrap = document.getElementById('plot3dWrap');
 
   canvas3d.addEventListener('pointermove', (ev) => {
+    // A button held means the user is orbiting/panning/zooming the view
+    // (handled by OrbitControls) rather than steering the point.
+    if (ev.buttons !== 0) { hideTooltip(tooltip3d); return; }
     const rect = canvas3d.getBoundingClientRect();
     mouseNDC.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     mouseNDC.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
