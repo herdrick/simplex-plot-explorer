@@ -108,17 +108,6 @@
     cursor: pointer;
   }
   button#setBtn:hover { background: var(--accent-hover); }
-  button#setBtn kbd {
-    background: rgba(255,255,255,0.25);
-    border-radius: 4px;
-    padding: 1px 5px;
-    font-size: 11px;
-    margin-left: 6px;
-  }
-  .hint {
-    color: var(--ink-muted);
-    font-size: 12px;
-  }
   #pointList {
     list-style: none;
     margin: 0;
@@ -168,7 +157,6 @@
 </head>
 <body>
   <h1>Ternary Plot Explorer</h1>
-  <div class="subtitle">Drag a slider, or move your mouse over the triangle. Press <kbd>S</kbd> or click Set Point to record the current point.</div>
 
   <div class="layout">
     <div class="panel" id="plotWrap">
@@ -199,12 +187,11 @@
         <input type="range" id="sliderC" min="0" max="100" value="34">
       </div>
 
-      <button id="setBtn">Set Point <kbd>S</kbd></button>
-      <div class="hint">Recorded points turn <span style="color:var(--set); font-weight:600;">orange</span> and stay on the plot.</div>
+      <button id="setBtn">Add point (shortcut: 's')</button>
 
       <div>
         <div class="label-line" style="margin-bottom:6px;">
-          <span class="name">Set points</span>
+          <span class="name">Points</span>
           <span id="countLabel" style="color:var(--ink-muted);">0</span>
         </div>
         <ul id="pointList"></ul>
