@@ -16,7 +16,6 @@
     --live: #2563eb;
     --set: #dc6b19;
     --accent-hover: #1d4ed8;
-    --other: #9a9a94;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -148,7 +147,7 @@
     color: var(--ink);
   }
   .picker-row .vlabel { width: 58px; font-size: 12px; color: var(--ink-muted); font-weight: 600; }
-  .other-note { font-size: 11px; color: var(--ink-muted); margin-top: 2px; }
+  .picker-note { font-size: 11px; color: var(--ink-muted); margin-top: 2px; }
   button#setBtn {
     background: var(--live);
     color: white;
@@ -195,12 +194,12 @@
 </head>
 <body>
   <h1>N-ary Plot Explorer</h1>
-  <div class="subtitle">Any number of dimensions, projected to 3D by picking 3 axes — every other dimension collapses into the gray "Other" vertex. Drag to rotate &middot; click a face to place the point &middot; scroll to zoom &middot; shift+scroll to pull the point inward.</div>
+  <div class="subtitle" id="subtitle">Any number of dimensions. Pick up to 4 of them to be the corners of the 3D shape — any others are dropped from the shape, but their sliders still hold real weight and pull the point toward the center.</div>
 
   <div class="layout">
     <div class="panel" id="plotWrap">
       <div class="tooltip" id="tooltip"></div>
-      <div class="hint">drag = rotate &middot; click face = set point &middot; shift+scroll = pull inward</div>
+      <div class="hint" id="hint"></div>
     </div>
 
     <div class="panel controls">
@@ -211,9 +210,9 @@
       </div>
 
       <div>
-        <div class="section-title">3D axes (pick 3 of N)</div>
+        <div class="section-title">Corners</div>
         <div class="picker" id="pickerList"></div>
-        <div class="other-note" id="otherNote"></div>
+        <div class="picker-note" id="pickerNote"></div>
       </div>
 
       <button id="setBtn">Add point (shortcut: 's')</button>
@@ -235,11 +234,13 @@
   const W = 460, H = 460;
   const plotWrap = document.getElementById('plotWrap');
   const tooltip = document.getElementById('tooltip');
+  const hint = document.getElementById('hint');
 
   const PALETTE = ['#c0392b', '#1f6f43', '#22559c', '#8e44ad', '#d68910', '#16a085', '#b03a5b', '#5d6d7e', '#7d3c98', '#a04000'];
   const MAX_DIMS = PALETTE.length;
   const MIN_DIMS = 3;
-  const OTHER_COLOR = '#9a9a94';
+  const MAX_CORNERS = 4;
+  const CORNER_KEYS = ['A', 'B', 'C', 'D'];
 
   function nextName(index) {
     return String.fromCharCode(65 + index); // A, B, C, ...
@@ -252,10 +253,11 @@
 
   let dims = [makeDim('A', PALETTE[0]), makeDim('B', PALETTE[1]), makeDim('C', PALETTE[2])];
   let state = { [dims[0].id]: 1 / 3, [dims[1].id]: 1 / 3, [dims[2].id]: 1 / 3 };
-  let pick = [dims[0].id, dims[1].id, dims[2].id]; // 3 dim ids mapped to tetrahedron vertices A, B, C
+  let pick = dims.map(d => d.id); // dim ids occupying the shape's corners, in CORNER_KEYS order
   const setPoints = [];
 
-  // --- Regular tetrahedron vertices, centered at origin (A/B/C = picked axes, D = "Other") ---
+  // Regular tetrahedron vertices, centered at origin (their sum is exactly zero — the key
+  // property that makes "dropped" weight visually pull the point toward the center).
   const RAW = {
     A: new THREE.Vector3(1, 1, 1),
     B: new THREE.Vector3(1, -1, -1),
@@ -265,22 +267,6 @@
   const SCALE = 1.6;
   const V = {};
   for (const k in RAW) V[k] = RAW[k].clone().multiplyScalar(SCALE);
-
-  const FACES = {
-    A: ['B', 'C', 'D'],
-    B: ['A', 'C', 'D'],
-    C: ['A', 'B', 'D'],
-    D: ['A', 'B', 'C'],
-  };
-  const VKEYS = ['A', 'B', 'C', 'D'];
-
-  function barycentricToPoint3(a, b, c, d) {
-    return new THREE.Vector3()
-      .addScaledVector(V.A, a)
-      .addScaledVector(V.B, b)
-      .addScaledVector(V.C, c)
-      .addScaledVector(V.D, d);
-  }
 
   function triBarycentric(p, p0, p1, p2) {
     const v0 = new THREE.Vector3().subVectors(p1, p0);
@@ -293,6 +279,23 @@
     const w = (d00 * d21 - d01 * d20) / denom;
     const u = 1 - v - w;
     return { u, v, w };
+  }
+
+  function closestOnSeg3(p, a, b) {
+    const ab = new THREE.Vector3().subVectors(b, a);
+    const len2 = ab.lengthSq();
+    const t0 = len2 === 0 ? 0 : new THREE.Vector3().subVectors(p, a).dot(ab) / len2;
+    const t = Math.max(0, Math.min(1, t0));
+    return new THREE.Vector3().copy(a).addScaledVector(ab, t);
+  }
+
+  function clampToTriangle3(p, A, B, C) {
+    const { u, v, w } = triBarycentric(p, A, B, C);
+    if (u >= 0 && v >= 0 && w >= 0) return p;
+    const candidates = [closestOnSeg3(p, A, B), closestOnSeg3(p, B, C), closestOnSeg3(p, C, A)];
+    let best = candidates[0], bestDist = Infinity;
+    candidates.forEach((c) => { const d = c.distanceToSquared(p); if (d < bestDist) { bestDist = d; best = c; } });
+    return best;
   }
 
   // --- Scene setup ---
@@ -310,40 +313,6 @@
   dirLight.position.set(3, 4, 5);
   scene.add(dirLight);
 
-  const positions = [];
-  for (const key of Object.keys(FACES)) {
-    const [k0, k1, k2] = FACES[key];
-    positions.push(V[k0].x, V[k0].y, V[k0].z, V[k1].x, V[k1].y, V[k1].z, V[k2].x, V[k2].y, V[k2].z);
-  }
-  const tetraGeom = new THREE.BufferGeometry();
-  tetraGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  tetraGeom.computeVertexNormals();
-
-  const faceMaterial = new THREE.MeshLambertMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false,
-  });
-  const faceMesh = new THREE.Mesh(tetraGeom, faceMaterial);
-  scene.add(faceMesh);
-
-  const edgesGeom = new THREE.EdgesGeometry(tetraGeom);
-  const edgesMat = new THREE.LineBasicMaterial({ color: 0x9a9a94 });
-  scene.add(new THREE.LineSegments(edgesGeom, edgesMat));
-
-  const gridPoints = [];
-  for (const key of Object.keys(FACES)) {
-    const [k0, k1, k2] = FACES[key].map(k => V[k]);
-    for (let i = 1; i < 10; i++) {
-      const t = i / 10;
-      const pairs = [[k0, k1, k0, k2], [k1, k0, k1, k2], [k2, k0, k2, k1]];
-      for (const [sa, sb, sc, sd] of pairs) {
-        gridPoints.push(new THREE.Vector3().lerpVectors(sa, sb, t), new THREE.Vector3().lerpVectors(sc, sd, t));
-      }
-    }
-  }
-  const gridGeom = new THREE.BufferGeometry().setFromPoints(gridPoints);
-  const gridMat = new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 });
-  scene.add(new THREE.LineSegments(gridGeom, gridMat));
-
   const liveSphere = new THREE.Mesh(
     new THREE.SphereGeometry(0.07, 20, 20),
     new THREE.MeshLambertMaterial({ color: 0x2563eb })
@@ -355,42 +324,37 @@
 
   // Vertex labels (HTML overlay, billboarded via projection each frame)
   const labelEls = {};
-  for (const key of VKEYS) {
+  CORNER_KEYS.forEach((key) => {
     const el = document.createElement('div');
     el.className = 'vertex-label';
     plotWrap.appendChild(el);
     labelEls[key] = el;
-  }
+  });
 
   const camDir = new THREE.Vector3();
   function updateLabels() {
     camera.getWorldDirection(camDir);
-    for (const key of VKEYS) {
+    activeKeys().forEach((key) => {
       const toVertex = new THREE.Vector3().subVectors(V[key], camera.position);
       const inFront = toVertex.dot(camDir) > 0;
-      if (!inFront) { labelEls[key].style.display = 'none'; continue; }
+      if (!inFront) { labelEls[key].style.display = 'none'; return; }
       const p = V[key].clone().project(camera);
       labelEls[key].style.left = ((p.x * 0.5 + 0.5) * W) + 'px';
       labelEls[key].style.top = ((-p.y * 0.5 + 0.5) * H) + 'px';
       labelEls[key].style.display = 'block';
-    }
+    });
   }
 
   function updateVertexLabels() {
-    for (let i = 0; i < 3; i++) {
+    CORNER_KEYS.forEach((key, i) => {
       const dim = dimById(pick[i]);
-      const el = labelEls[VKEYS[i]];
-      el.textContent = dim ? dim.name : '?';
-      el.style.color = dim ? dim.color : '#000';
-    }
-    const otherEl = labelEls.D;
-    const n = otherDims().length;
-    otherEl.textContent = n > 0 ? `Other (${n})` : '';
-    otherEl.style.color = OTHER_COLOR;
-    otherEl.style.opacity = n > 0 ? '1' : '0.35';
+      const el = labelEls[key];
+      el.style.display = dim ? '' : 'none';
+      if (dim) { el.textContent = dim.name; el.style.color = dim.color; }
+    });
   }
 
-  // --- Orbit camera (hand-rolled: drag to rotate, wheel to zoom) ---
+  // --- Hand-rolled orbit camera: drag to rotate, wheel to zoom ---
   let radius = 6.2, theta = Math.PI * 0.28, phi = Math.PI * 0.32;
   function updateCamera() {
     const sinPhi = Math.sin(phi);
@@ -399,19 +363,19 @@
   }
   updateCamera();
 
-  // --- Dimension / picker helpers ---
+  // --- Dimension / corner helpers ---
   function dimById(id) { return dims.find(d => d.id === id); }
-  function otherDims() { return dims.filter(d => !pick.includes(d.id)); }
-  function otherSum() { return otherDims().reduce((s, d) => s + state[d.id], 0); }
+  function activeKeys() { return CORNER_KEYS.slice(0, pick.length); }
+  function droppedDims() { return dims.filter(d => !pick.includes(d.id)); }
 
-  // Current projected barycentric coords (x,y,z = picked dims, w = everything else combined)
-  function projected() {
-    return { x: state[pick[0]], y: state[pick[1]], z: state[pick[2]], w: otherSum() };
+  function pointFromValues(weightsById) {
+    const p = new THREE.Vector3();
+    pick.forEach((id, i) => { p.addScaledVector(V[CORNER_KEYS[i]], weightsById[id] || 0); });
+    return p;
   }
 
   function renderLivePoint() {
-    const { x, y, z, w } = projected();
-    liveSphere.position.copy(barycentricToPoint3(x, y, z, w));
+    liveSphere.position.copy(pointFromValues(state));
   }
 
   // --- State mutation ---
@@ -443,20 +407,17 @@
     setState(next);
   }
 
-  // Set the projected point: 3 picked axes directly, "other" total distributed proportionally
-  // across whichever dimensions are currently not picked (equally if they were all zero).
-  function setProjected(x, y, z, w) {
-    const rest = otherDims();
-    const next = { [pick[0]]: x, [pick[1]]: y, [pick[2]]: z };
-    if (rest.length === 0) {
-      setState(next);
-      return;
-    }
-    const restSumCur = rest.reduce((s, d) => s + state[d.id], 0);
-    rest.forEach(d => {
-      next[d.id] = restSumCur > 0 ? (state[d.id] / restSumCur) * w : w / rest.length;
-    });
+  // Set the corner weights directly (they should sum to 1); every dropped dimension is zeroed,
+  // since a 3D gesture can only ever assign the full 100% to whatever corners are showing.
+  function setCorners(weights) {
+    const next = {};
+    pick.forEach((id, i) => { next[id] = weights[i]; });
+    droppedDims().forEach(d => { next[d.id] = 0; });
     setState(next);
+  }
+
+  function defaultPick() {
+    return dims.slice(0, Math.min(MAX_CORNERS, dims.length)).map(d => d.id);
   }
 
   function addDimension() {
@@ -468,10 +429,8 @@
     dims.forEach(d => { next[d.id] = state[d.id] * scale; });
     dims.push(dim);
     state = next;
-    renderDims();
-    renderPicker();
-    renderLivePoint();
-    renderSetPoints();
+    if (dims.length <= MAX_CORNERS) pick = defaultPick();
+    rebuildAfterStructureChange();
   }
 
   function removeDimension(id) {
@@ -484,15 +443,15 @@
       next[d.id] = sumRest > 0 ? state[d.id] + (state[d.id] / sumRest) * removedVal : 1 / dims.length;
     });
     state = normalize(next);
-    if (pick.includes(id)) {
-      // Replace the removed axis with the first dim not already picked.
-      const replacement = dims.find(d => !pick.includes(d.id)) || dims[0];
-      pick = pick.map(p => p === id ? replacement.id : p);
+
+    pick = pick.filter(p => p !== id);
+    if (dims.length <= MAX_CORNERS) {
+      pick = defaultPick();
+    } else {
+      const candidate = dims.find(d => !pick.includes(d.id));
+      if (candidate) pick.push(candidate.id);
     }
-    renderDims();
-    renderPicker();
-    renderLivePoint();
-    renderSetPoints();
+    rebuildAfterStructureChange();
   }
 
   function renameDimension(id, name) {
@@ -500,6 +459,14 @@
     if (dim) dim.name = name || dim.name;
     updateVertexLabels();
     renderPointList();
+  }
+
+  function rebuildAfterStructureChange() {
+    buildSceneGeometry();
+    renderDims();
+    renderPicker();
+    renderLivePoint();
+    renderSetPoints();
   }
 
   // --- Dimensions panel ---
@@ -558,27 +525,28 @@
     updateVertexLabels();
   }
 
-  // --- Axis picker panel ---
+  // --- Corner picker panel ---
   const pickerList = document.getElementById('pickerList');
-  const otherNote = document.getElementById('otherNote');
-  const PICKER_COLORS = ['#c0392b', '#1f6f43', '#22559c'];
-  const PICKER_LABELS = ['Vertex X', 'Vertex Y', 'Vertex Z'];
+  const pickerNote = document.getElementById('pickerNote');
 
   function renderPicker() {
     pickerList.innerHTML = '';
-    for (let i = 0; i < 3; i++) {
+    const forced = dims.length <= MAX_CORNERS;
+    for (let i = 0; i < pick.length; i++) {
       const row = document.createElement('div');
       row.className = 'picker-row';
 
+      const dim = dimById(pick[i]);
       const swatch = document.createElement('span');
       swatch.className = 'swatch';
-      swatch.style.background = PICKER_COLORS[i];
+      swatch.style.background = dim ? dim.color : '#ccc';
 
       const label = document.createElement('span');
       label.className = 'vlabel';
-      label.textContent = PICKER_LABELS[i];
+      label.textContent = 'Corner ' + (i + 1);
 
       const select = document.createElement('select');
+      select.disabled = forced;
       dims.forEach(d => {
         const opt = document.createElement('option');
         opt.value = d.id;
@@ -604,13 +572,85 @@
       row.appendChild(select);
       pickerList.appendChild(row);
     }
-    const n = otherDims().length;
-    otherNote.textContent = n > 0
-      ? `Gray vertex = "Other" = the remaining ${n} dimension${n === 1 ? '' : 's'} combined.`
-      : 'All dimensions are picked — the gray "Other" vertex is unused, so points sit flat on the front face.';
+
+    const dropped = droppedDims();
+    if (forced) {
+      pickerNote.textContent = pick.length === 3
+        ? 'All 3 dimensions are corners of a triangle.'
+        : 'All 4 dimensions are corners of a tetrahedron.';
+    } else {
+      pickerNote.textContent = `${dropped.length} dimension${dropped.length === 1 ? '' : 's'} dropped from the shape (still adjustable via its slider) — weight there pulls the point toward the center.`;
+    }
   }
 
-  // --- Pointer interaction: drag = orbit, click (no drag) on a face = set point ---
+  // --- Scene geometry: rebuilt whenever the corner count (3 vs 4) changes ---
+  let faceMesh = null, edgesObj = null, gridObj = null;
+  let faceList = null; // 4-corner mode only: [{ opposite: 'A', verts: ['B','C','D'] }, ...]
+  let trianglePlane = null; // 3-corner mode only
+
+  function disposeObj(o) {
+    if (!o) return;
+    scene.remove(o);
+    o.geometry.dispose();
+    o.material.dispose();
+  }
+
+  function buildSceneGeometry() {
+    disposeObj(faceMesh); disposeObj(edgesObj); disposeObj(gridObj);
+    faceList = null; trianglePlane = null;
+
+    const keys = activeKeys();
+    const isTetra = keys.length === 4;
+
+    let faceDefs;
+    if (isTetra) {
+      const FACES = { A: ['B', 'C', 'D'], B: ['A', 'C', 'D'], C: ['A', 'B', 'D'], D: ['A', 'B', 'C'] };
+      faceList = keys.map(k => ({ opposite: k, verts: FACES[k] }));
+      faceDefs = faceList.map(f => f.verts);
+    } else {
+      trianglePlane = new THREE.Plane().setFromCoplanarPoints(V[keys[0]], V[keys[1]], V[keys[2]]);
+      faceDefs = [keys];
+    }
+
+    const positions = [];
+    faceDefs.forEach(([k0, k1, k2]) => {
+      positions.push(V[k0].x, V[k0].y, V[k0].z, V[k1].x, V[k1].y, V[k1].z, V[k2].x, V[k2].y, V[k2].z);
+    });
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geom.computeVertexNormals();
+
+    faceMesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false,
+    }));
+    scene.add(faceMesh);
+
+    edgesObj = new THREE.LineSegments(new THREE.EdgesGeometry(geom), new THREE.LineBasicMaterial({ color: 0x9a9a94 }));
+    scene.add(edgesObj);
+
+    const gridPoints = [];
+    faceDefs.forEach(([k0, k1, k2]) => {
+      const p0 = V[k0], p1 = V[k1], p2 = V[k2];
+      for (let i = 1; i < 10; i++) {
+        const t = i / 10;
+        const pairs = [[p0, p1, p0, p2], [p1, p0, p1, p2], [p2, p0, p2, p1]];
+        pairs.forEach(([sa, sb, sc, sd]) => {
+          gridPoints.push(new THREE.Vector3().lerpVectors(sa, sb, t), new THREE.Vector3().lerpVectors(sc, sd, t));
+        });
+      }
+    });
+    gridObj = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(gridPoints),
+      new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 })
+    );
+    scene.add(gridObj);
+
+    hint.textContent = isTetra
+      ? 'drag = rotate · click a face = set point · shift+scroll = pull inward'
+      : 'drag = rotate · move over the triangle = set point';
+  }
+
+  // --- Pointer interaction ---
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
@@ -631,32 +671,23 @@
     const hits = raycaster.intersectObject(faceMesh, false);
     if (!hits.length) return null;
     const hit = hits[0];
-    const faceIdx = Math.floor(hit.faceIndex);
-    const faceKey = VKEYS[faceIdx]; // vertex opposite this face
-    const [k0, k1, k2] = FACES[faceKey].map(k => V[k]);
-    const { u, v, w } = triBarycentric(hit.point, k0, k1, k2);
+    const f = faceList[Math.floor(hit.faceIndex)];
+    const [k0, k1, k2] = f.verts;
+    const { u, v, w } = triBarycentric(hit.point, V[k0], V[k1], V[k2]);
     const face = {};
-    face[FACES[faceKey][0]] = u;
-    face[FACES[faceKey][1]] = v;
-    face[FACES[faceKey][2]] = w;
-    return { faceKey, face };
+    face[k0] = u; face[k1] = v; face[k2] = w;
+    return { faceKey: f.opposite, face };
   }
 
   // Active face-pull: a point picked on a face, plus how far it's been pulled (t)
   // toward that face's opposite vertex. null once the sliders are touched directly.
   let pullState = null;
 
-  function vertexWeights(faceKey, face, t) {
-    const next = { A: 0, B: 0, C: 0, D: 0 };
-    next[faceKey] = t;
-    VKEYS.filter(k => k !== faceKey).forEach(k => { next[k] = (face[k] || 0) * (1 - t); });
-    return next;
-  }
-
   function applyPullState() {
     const { faceKey, face, t } = pullState;
-    const wts = vertexWeights(faceKey, face, t);
-    setProjected(wts.A, wts.B, wts.C, wts.D);
+    const keys = activeKeys();
+    const weights = keys.map(k => k === faceKey ? t : (face[k] || 0) * (1 - t));
+    setCorners(weights);
     refreshDimValues();
   }
 
@@ -676,18 +707,32 @@
         updateCamera();
       }
       lastX = ev.clientX; lastY = ev.clientY;
-    } else {
+      hideTooltip();
+      return;
+    }
+
+    if (activeKeys().length === 3) {
       setNdcFromEvent(ev);
       raycaster.setFromCamera(ndc, camera);
-      const hits = raycaster.intersectObjects(setPointsGroup.children, false);
-      if (hits.length) showTooltip(ev, hits[0].object.userData.pt);
-      else hideTooltip();
+      const hitPt = new THREE.Vector3();
+      const keys = activeKeys();
+      if (raycaster.ray.intersectPlane(trianglePlane, hitPt)) {
+        const clamped = clampToTriangle3(hitPt, V[keys[0]], V[keys[1]], V[keys[2]]);
+        const { u, v, w } = triBarycentric(clamped, V[keys[0]], V[keys[1]], V[keys[2]]);
+        setCorners([Math.max(0, u), Math.max(0, v), Math.max(0, w)]);
+      }
     }
+
+    setNdcFromEvent(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(setPointsGroup.children, false);
+    if (hits.length) showTooltip(ev, hits[0].object.userData.pt);
+    else hideTooltip();
   });
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
     dragging = false;
-    if (!dragMoved) {
+    if (!dragMoved && activeKeys().length === 4) {
       const picked = pickFacePoint(ev);
       if (picked) {
         pullState = { faceKey: picked.faceKey, face: picked.face, t: 0 };
@@ -700,7 +745,7 @@
 
   renderer.domElement.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    if (ev.shiftKey && pullState) {
+    if (ev.shiftKey && pullState && activeKeys().length === 4) {
       pullState.t = Math.max(0, Math.min(1, pullState.t + ev.deltaY * 0.0015));
       applyPullState();
       return;
@@ -724,9 +769,7 @@
   function renderSetPoints() {
     setPointsGroup.clear();
     setPoints.forEach((pt) => {
-      const x = pt[pick[0]] || 0, y = pt[pick[1]] || 0, z = pt[pick[2]] || 0;
-      const w = dims.reduce((s, d) => s + (pick.includes(d.id) ? 0 : (pt[d.id] || 0)), 0);
-      const p = barycentricToPoint3(x, y, z, w);
+      const p = pointFromValues(pt);
       const mesh = new THREE.Mesh(
         new THREE.SphereGeometry(0.06, 16, 16),
         new THREE.MeshLambertMaterial({ color: 0xdc6b19 })
@@ -789,6 +832,7 @@
   }
 
   // init
+  buildSceneGeometry();
   renderDims();
   renderPicker();
   renderLivePoint();
