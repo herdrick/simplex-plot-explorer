@@ -56,13 +56,18 @@
     border-radius: 12px;
     padding: 16px;
   }
-  #plotWrap {
+  #plotWrap, #plot3dWrap {
     position: relative;
     touch-action: none;
   }
   svg#plot {
     display: block;
     cursor: crosshair;
+  }
+  canvas#plot3d {
+    display: block;
+    cursor: crosshair;
+    border-radius: 6px;
   }
   .controls {
     width: 260px;
@@ -200,6 +205,12 @@
     </div>
   </div>
 
+  <div class="panel" id="plot3dWrap">
+    <canvas id="plot3d" width="420" height="420"></canvas>
+    <div class="tooltip" id="tooltip3d"></div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
 (function () {
   const svg = document.getElementById('plot');
@@ -315,6 +326,149 @@
   liveCircle.setAttribute('stroke-width', '2');
   svg.appendChild(liveCircle);
 
+  // ================= 3D synced plot (simplex sitting in the origin corner) =================
+  const canvas3d = document.getElementById('plot3d');
+  const W3 = canvas3d.width, H3 = canvas3d.height;
+
+  const renderer3d = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true, alpha: true });
+  renderer3d.setPixelRatio(window.devicePixelRatio || 1);
+  renderer3d.setSize(W3, H3);
+
+  const scene3d = new THREE.Scene();
+  const camera3d = new THREE.PerspectiveCamera(45, W3 / H3, 0.1, 10);
+  camera3d.position.set(3.0, 2.0, 2.2);
+  camera3d.lookAt(0, 0, 0);
+
+  const V0 = new THREE.Vector3(1, 0, 0); // A
+  const V1 = new THREE.Vector3(0, 1, 0); // B
+  const V2 = new THREE.Vector3(0, 0, 1); // C
+  const ORIGIN3 = new THREE.Vector3(0, 0, 0);
+
+  function addAxis3(to, color) {
+    const geo = new THREE.BufferGeometry().setFromPoints([ORIGIN3, to]);
+    scene3d.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color })));
+  }
+  addAxis3(V0, 0xc0392b);
+  addAxis3(V1, 0x1f6f43);
+  addAxis3(V2, 0x22559c);
+
+  const planeGeo3 = new THREE.BufferGeometry().setFromPoints([V0, V1, V2]);
+  planeGeo3.setIndex([0, 1, 2]);
+  planeGeo3.computeVertexNormals();
+  const planeMat3 = new THREE.MeshBasicMaterial({
+    color: 0xd8d8d4, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  scene3d.add(new THREE.Mesh(planeGeo3, planeMat3));
+
+  scene3d.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([V0, V1, V2, V0]),
+    new THREE.LineBasicMaterial({ color: 0x9a9a94 })
+  ));
+
+  function lerp3(p, q, t) { return new THREE.Vector3().lerpVectors(p, q, t); }
+  const gridMat3 = new THREE.LineBasicMaterial({ color: 0xc7c7c2, transparent: true, opacity: 0.7 });
+  for (let i = 1; i < 10; i++) {
+    const t = i / 10;
+    [[V0, V1, V0, V2], [V1, V0, V1, V2], [V2, V0, V2, V1]].forEach(([pa, pb, qa, qb]) => {
+      const g = new THREE.BufferGeometry().setFromPoints([lerp3(pa, pb, t), lerp3(qa, qb, t)]);
+      scene3d.add(new THREE.Line(g, gridMat3));
+    });
+  }
+
+  function makeLabelSprite3(text, color) {
+    const cvs = document.createElement('canvas');
+    cvs.width = 64; cvs.height = 64;
+    const ctx = cvs.getContext('2d');
+    ctx.font = 'bold 40px -apple-system, sans-serif';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 32, 32);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cvs), transparent: true }));
+    sprite.scale.set(0.16, 0.16, 1);
+    sprite.renderOrder = 10;
+    return sprite;
+  }
+  const labelA3 = makeLabelSprite3('A', '#c0392b'); labelA3.position.set(1.14, 0, 0); scene3d.add(labelA3);
+  const labelB3 = makeLabelSprite3('B', '#1f6f43'); labelB3.position.set(0, 1.14, 0); scene3d.add(labelB3);
+  const labelC3 = makeLabelSprite3('C', '#22559c'); labelC3.position.set(0, 0, 1.14); scene3d.add(labelC3);
+
+  const liveSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.032, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0x2563eb })
+  );
+  scene3d.add(liveSphere);
+
+  const setPointsGroup3d = new THREE.Group();
+  scene3d.add(setPointsGroup3d);
+
+  function render3d() { renderer3d.render(scene3d, camera3d); }
+
+  function render3DLive(a, b, c) {
+    liveSphere.position.set(a, b, c);
+    render3d();
+  }
+
+  function render3DPoints(points) {
+    setPointsGroup3d.clear();
+    points.forEach((pt) => {
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.028, 20, 14),
+        new THREE.MeshBasicMaterial({ color: 0xdc6b19 })
+      );
+      mesh.position.set(pt.a, pt.b, pt.c);
+      mesh.userData.pt = pt;
+      setPointsGroup3d.add(mesh);
+    });
+    render3d();
+  }
+
+  // Clamp a barycentric-coordinate point (x+y+z ~= 1) to inside the simplex triangle
+  function clamp3D(p) {
+    if (p.x >= 0 && p.y >= 0 && p.z >= 0) return p;
+    function closestOnSeg(a, b) {
+      const ab = new THREE.Vector3().subVectors(b, a);
+      const len2 = ab.lengthSq();
+      const t0 = len2 === 0 ? 0 : new THREE.Vector3().subVectors(p, a).dot(ab) / len2;
+      const t = Math.max(0, Math.min(1, t0));
+      return new THREE.Vector3().copy(a).addScaledVector(ab, t);
+    }
+    const candidates = [closestOnSeg(V0, V1), closestOnSeg(V1, V2), closestOnSeg(V2, V0)];
+    let best = candidates[0], bestDist = Infinity;
+    candidates.forEach((cand) => {
+      const d = cand.distanceToSquared(p);
+      if (d < bestDist) { bestDist = d; best = cand; }
+    });
+    return best;
+  }
+
+  const raycaster3d = new THREE.Raycaster();
+  const mouseNDC = new THREE.Vector2();
+  const simplexPlane = new THREE.Plane(new THREE.Vector3(1, 1, 1).normalize(), -1 / Math.sqrt(3));
+  const hit3d = new THREE.Vector3();
+  const tooltip3d = document.getElementById('tooltip3d');
+  const plot3dWrap = document.getElementById('plot3dWrap');
+
+  canvas3d.addEventListener('pointermove', (ev) => {
+    const rect = canvas3d.getBoundingClientRect();
+    mouseNDC.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseNDC.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster3d.setFromCamera(mouseNDC, camera3d);
+    if (raycaster3d.ray.intersectPlane(simplexPlane, hit3d)) {
+      const clamped = clamp3D(hit3d);
+      setState(Math.max(0, clamped.x), Math.max(0, clamped.y), Math.max(0, clamped.z));
+    }
+
+    const hits = raycaster3d.intersectObjects(setPointsGroup3d.children);
+    if (hits.length) {
+      showTooltip(tooltip3d, plot3dWrap, ev, hits[0].object.userData.pt);
+    } else {
+      hideTooltip(tooltip3d);
+    }
+  });
+  canvas3d.addEventListener('pointerleave', () => hideTooltip(tooltip3d));
+
   // --- State ---
   let state = { a: 0.33, b: 0.33, c: 0.34 };
   const setPoints = [];
@@ -335,6 +489,7 @@
     const p = barycentricToPoint(state.a, state.b, state.c);
     liveCircle.setAttribute('cx', p.x);
     liveCircle.setAttribute('cy', p.y);
+    render3DLive(state.a, state.b, state.c);
   }
 
   function renderSliders() {
@@ -411,9 +566,9 @@
       el.setAttribute('stroke', 'white');
       el.setAttribute('stroke-width', '1.5');
       el.style.cursor = 'pointer';
-      el.addEventListener('mouseenter', (ev) => showTooltip(ev, pt));
-      el.addEventListener('mousemove', (ev) => showTooltip(ev, pt));
-      el.addEventListener('mouseleave', hideTooltip);
+      el.addEventListener('mouseenter', (ev) => showTooltip(tooltip, plotWrap, ev, pt));
+      el.addEventListener('mousemove', (ev) => showTooltip(tooltip, plotWrap, ev, pt));
+      el.addEventListener('mouseleave', () => hideTooltip(tooltip));
       setPointsGroup.appendChild(el);
     });
 
@@ -438,16 +593,18 @@
 
     countLabel.textContent = setPoints.length;
     emptyNote.style.display = setPoints.length ? 'none' : 'block';
+
+    render3DPoints(setPoints);
   }
 
-  function showTooltip(ev, pt) {
-    const rect = plotWrap.getBoundingClientRect();
-    tooltip.style.left = (ev.clientX - rect.left) + 'px';
-    tooltip.style.top = (ev.clientY - rect.top) + 'px';
-    tooltip.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}%`;
-    tooltip.style.opacity = '1';
+  function showTooltip(tooltipEl, wrapEl, ev, pt) {
+    const rect = wrapEl.getBoundingClientRect();
+    tooltipEl.style.left = (ev.clientX - rect.left) + 'px';
+    tooltipEl.style.top = (ev.clientY - rect.top) + 'px';
+    tooltipEl.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}%`;
+    tooltipEl.style.opacity = '1';
   }
-  function hideTooltip() { tooltip.style.opacity = '0'; }
+  function hideTooltip(tooltipEl) { tooltipEl.style.opacity = '0'; }
 
   document.getElementById('setBtn').addEventListener('click', recordPoint);
   document.addEventListener('keydown', (ev) => {
