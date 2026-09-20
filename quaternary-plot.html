@@ -140,9 +140,10 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
     max-height: 180px;
     overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
   }
   #pointList li {
     display: flex;
@@ -150,10 +151,11 @@
     gap: 8px;
     font-size: 12px;
     font-variant-numeric: tabular-nums;
-    border: 1px solid var(--border);
-    border-radius: 6px;
     padding: 5px 8px;
+    border-bottom: 1px solid var(--border);
   }
+  #pointList li:last-child { border-bottom: none; }
+  #pointList li:hover { background: var(--bg); }
   #pointList li .coords { flex: 1; color: var(--ink-muted); }
   #pointList li button {
     border: none;
