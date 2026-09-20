@@ -413,12 +413,15 @@
   scene.add(setPointsGroup);
 
   // --- Construction overlay: visualizes how each corner's weight is computed ---
-  // For a vertex set centered at the origin, the centroid of every OTHER vertex is always
-  // a negative multiple of this vertex (C_i = -X_i/(n-1), straight from Σ X_j = 0), so the
-  // "opposite plane" — through that centroid, facing this vertex — is fully determined by
-  // X_i alone. For n=3/4 (our exact regular triangle/tetrahedron) this is exactly the true
-  // opposite side/face; for n>=5 it's the natural generalization (the vertices generally
-  // aren't coplanar past 4, so "opposite plane" becomes an honest approximation).
+  // Viviani's theorem — "value = distance to the opposite facet ÷ height from the vertex"
+  // — generalizes exactly to any n, but only if it's computed in the simplex's own true
+  // (n-1)-dimensional space, where all n vertices really are equidistant and every facet
+  // is a genuine flat hyperplane. Our 3D VIEW only has room for a faithful copy of that
+  // simplex when n<=4 (any more vertices can't stay equidistant in just 3 dimensions), so:
+  //  - n<=4: computed AND drawn using the real 3D vertex positions (V) — exact.
+  //  - n>=5: computed exactly using an abstract n-dimensional regular simplex (plain
+  //    vector math, not tied to V at all) — still exact, but there's no matching 3D
+  //    geometry to draw, so no construction lines appear for those levels.
   const constructionGroup = new THREE.Group();
   scene.add(constructionGroup);
   let constructionMode = 'both';
@@ -437,6 +440,17 @@
     return `<div class="calc-row"><span class="rowhead"><span class="swatch" style="background:${color}"></span><b>${label}</b> =</span> ${html}</div>`;
   }
 
+  // --- Plain n-dimensional vector math (arrays, not THREE.Vector3) — used for the
+  // n>=5 construction, which lives in the simplex's true (n-1)-dim space, not the 3D view.
+  function nZeros(n) { return new Array(n).fill(0); }
+  function nSub(a, b) { return a.map((v, i) => v - b[i]); }
+  function nAdd(a, b) { return a.map((v, i) => v + b[i]); }
+  function nScale(a, s) { return a.map(v => v * s); }
+  function nDot(a, b) { return a.reduce((s, v, i) => s + v * b[i], 0); }
+  function nNorm(a) { return Math.sqrt(nDot(a, a)); }
+  function nNormalize(a) { const len = nNorm(a); return len > 0 ? nScale(a, 1 / len) : a; }
+  function stateToVec(weightsById) { return dims.map(d => weightsById[d.id] || 0); }
+
   function addLine3(p1, p2, colorHex, opacity) {
     const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
     const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: opacity != null, opacity: opacity != null ? opacity : 1 });
@@ -449,6 +463,8 @@
     constructionGroup.add(mesh);
   }
 
+  // n<=4: the true simplex fits in our 3D view, so this both computes AND draws the
+  // construction using the real vertex positions (V).
   function drawFaceConstruction(geom, label, P, colorHex, colorCss) {
     const foot = geom.footOf(P);
     const d = foot.distanceTo(P);
@@ -471,46 +487,106 @@
     return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
   }
 
+  // n>=5: same math, done in the abstract (n-1)-dim space (plain arrays) since there's no
+  // faithful 3D copy of the true simplex to draw on. Numbers are exact; no lines are drawn.
+  function drawFaceConstructionN(geom, label, w, colorCss) {
+    const foot = geom.footOfN(w);
+    const d = nNorm(nSub(foot, w));
+    const value = geom.height > 0 ? d / geom.height : 0;
+    return swatchRow(colorCss, label, `${un(d)} / ${un(geom.height)} = ${pct(value)}`);
+  }
+
+  function drawCornerConstructionN(geom, label, w, colorCss) {
+    const Q = geom.rayHitN(w);
+    if (!Q) return '';
+    const dXP = nNorm(nSub(w, geom.X));
+    const dXQ = nNorm(nSub(Q, geom.X));
+    if (dXQ < 1e-9) return '';
+    const value = 1 - dXP / dXQ;
+    return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
+  }
+
   function buildConstructionGeom() {
     const n = dims.length;
     CONSTRUCTION_GEOM = {};
-    dims.forEach((dim, i) => {
-      const X = V[i];
-      const normal = X.clone().normalize();
-      const oppositeCentroid = X.clone().multiplyScalar(-1 / (n - 1));
-      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, oppositeCentroid);
-      CONSTRUCTION_GEOM[dim.id] = {
-        X,
-        footOf: (p) => plane.projectPoint(p, new THREE.Vector3()),
-        rayHit: (p) => {
-          const dir = new THREE.Vector3().subVectors(p, X);
-          if (dir.lengthSq() < 1e-9) return null;
-          dir.normalize();
-          const ray = new THREE.Ray(X, dir);
-          const Q = new THREE.Vector3();
-          return ray.intersectPlane(plane, Q) ? Q : null;
-        },
-        height: X.distanceTo(oppositeCentroid),
-      };
-    });
+    if (n <= 4) {
+      dims.forEach((dim, i) => {
+        const X = V[i];
+        const normal = X.clone().normalize();
+        const oppositeCentroid = X.clone().multiplyScalar(-1 / (n - 1));
+        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, oppositeCentroid);
+        CONSTRUCTION_GEOM[dim.id] = {
+          drawable: true,
+          X,
+          footOf: (p) => plane.projectPoint(p, new THREE.Vector3()),
+          rayHit: (p) => {
+            const dir = new THREE.Vector3().subVectors(p, X);
+            if (dir.lengthSq() < 1e-9) return null;
+            dir.normalize();
+            const ray = new THREE.Ray(X, dir);
+            const Q = new THREE.Vector3();
+            return ray.intersectPlane(plane, Q) ? Q : null;
+          },
+          height: X.distanceTo(oppositeCentroid),
+        };
+      });
+    } else {
+      // Standard-basis embedding e_1..e_n in R^n: a genuinely regular (n-1)-simplex, and
+      // conveniently P = Σ w_i e_i is just the weight vector w itself.
+      dims.forEach((dim, i) => {
+        const e_i = nZeros(n); e_i[i] = 1;
+        const centroid = nZeros(n).map((_, j) => (j === i ? 0 : 1 / (n - 1)));
+        const diff = nSub(e_i, centroid);
+        const height = nNorm(diff);
+        const normal = nScale(diff, 1 / height);
+        CONSTRUCTION_GEOM[dim.id] = {
+          drawable: false,
+          X: e_i,
+          footOfN: (w) => {
+            const signedDist = nDot(nSub(w, centroid), normal);
+            return nSub(w, nScale(normal, signedDist));
+          },
+          rayHitN: (w) => {
+            const dir = nSub(w, e_i);
+            const denom = nDot(dir, normal);
+            if (Math.abs(denom) < 1e-9) return null;
+            const t = nDot(nSub(centroid, e_i), normal) / denom;
+            return nAdd(e_i, nScale(dir, t));
+          },
+          height,
+        };
+      });
+    }
   }
 
   function renderConstruction(pointOverride) {
     constructionGroup.clear();
     const src = pointOverride || state;
     const P = pointFromValues(src);
+    const w = stateToVec(src);
     const faceRows = [], cornerRows = [];
 
     dims.forEach((dim) => {
       const geom = CONSTRUCTION_GEOM[dim.id];
       if (!geom) return;
-      if (constructionMode === 'face') {
-        faceRows.push(drawFaceConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
-      } else if (constructionMode === 'corner') {
-        cornerRows.push(drawCornerConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
+      if (geom.drawable) {
+        if (constructionMode === 'face') {
+          faceRows.push(drawFaceConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
+        } else if (constructionMode === 'corner') {
+          cornerRows.push(drawCornerConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
+        } else {
+          faceRows.push(drawFaceConstruction(geom, dim.name, P, METHOD_COLOR_HEX.face, METHOD_COLOR.face));
+          cornerRows.push(drawCornerConstruction(geom, dim.name, P, METHOD_COLOR_HEX.corner, METHOD_COLOR.corner));
+        }
       } else {
-        faceRows.push(drawFaceConstruction(geom, dim.name, P, METHOD_COLOR_HEX.face, METHOD_COLOR.face));
-        cornerRows.push(drawCornerConstruction(geom, dim.name, P, METHOD_COLOR_HEX.corner, METHOD_COLOR.corner));
+        if (constructionMode === 'face') {
+          faceRows.push(drawFaceConstructionN(geom, dim.name, w, dim.color));
+        } else if (constructionMode === 'corner') {
+          cornerRows.push(drawCornerConstructionN(geom, dim.name, w, dim.color));
+        } else {
+          faceRows.push(drawFaceConstructionN(geom, dim.name, w, METHOD_COLOR.face));
+          cornerRows.push(drawCornerConstructionN(geom, dim.name, w, METHOD_COLOR.corner));
+        }
       }
     });
 
@@ -520,6 +596,9 @@
     }
     if (cornerRows.length) {
       html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE}</div>${cornerRows.join('')}`;
+    }
+    if (dims.length >= 5) {
+      html += `<div class="calc-heading" style="color:var(--ink-muted)">n≥5: computed exactly in ${dims.length}-dimensional space; no matching lines to draw in 3D</div>`;
     }
     formulaText.innerHTML = html;
   }
