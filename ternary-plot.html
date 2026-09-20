@@ -228,9 +228,9 @@
           <span class="name">Show calculation</span>
         </div>
         <div class="segmented">
-          <button data-mode="none" class="active">Off</button>
           <button data-mode="side">From side</button>
           <button data-mode="corner">From corner</button>
+          <button data-mode="both" class="active">Both</button>
         </div>
         <div class="formula" id="formulaText"></div>
       </div>
@@ -360,7 +360,7 @@
   // --- Construction overlay: visualizes how a/b/c are computed ---
   const constructionGroup = document.createElementNS(NS, 'g');
   svg.appendChild(constructionGroup);
-  let constructionMode = 'none';
+  let constructionMode = 'both';
 
   function footOfPerpendicular(p, a, b) {
     const abx = b.x - a.x, aby = b.y - a.y;
@@ -420,39 +420,58 @@
     { key: 'c', X: C_V, Y: A_V, Z: B_V, color: '#22559c' },
   ];
 
+  // In "both" mode, color identifies the METHOD (not the vertex), so the
+  // two overlaid constructions stay visually distinct.
+  const METHOD_COLOR = { side: '#2563eb', corner: '#d9720a' };
+
   const formulaText = document.getElementById('formulaText');
+  const SIDE_FORMULA = 'value = distance from P to the opposite side ÷ the triangle’s height from that vertex.';
+  const CORNER_FORMULA = 'value = 1 − |vertex → P| ÷ |vertex → Q|, where Q is where the line through the vertex and P meets the opposite side.';
   const FORMULAS = {
-    none: '',
-    side: 'value = distance from P to the opposite side ÷ the triangle’s height from that vertex.',
-    corner: 'value = 1 − |vertex → P| ÷ |vertex → Q|, where Q is where the line through the vertex and P meets the opposite side.',
+    side: SIDE_FORMULA,
+    corner: CORNER_FORMULA,
+    both: `<span style="color:${METHOD_COLOR.side}">■ From side</span> — ${SIDE_FORMULA}<br>`
+        + `<span style="color:${METHOD_COLOR.corner}">■ From corner</span> — ${CORNER_FORMULA}`,
   };
+
+  function drawSideConstruction(v, P, color) {
+    const value = state[v.key];
+    const pct = Math.round(value * 100) + '%';
+    const foot = footOfPerpendicular(P, v.Y, v.Z);
+    const footFromVertex = footOfPerpendicular(v.X, v.Y, v.Z);
+    // faint reference line: the full height this distance is measured against
+    svgLine(v.X, footFromVertex, color, { dashed: true, dash: '2 4', width: 1, opacity: 0.35 });
+    svgLine(P, foot, color, { width: 2 });
+    svgTick(foot, color);
+    const out = { x: foot.x + (foot.x - v.X.x) * 0.09, y: foot.y + (foot.y - v.X.y) * 0.09 };
+    svgLabel(out, pct, color);
+  }
+
+  function drawCornerConstruction(v, P, color) {
+    const value = state[v.key];
+    const pct = Math.round(value * 100) + '%';
+    const Q = lineIntersect(v.X, P, v.Y, v.Z);
+    if (!Q) return;
+    svgLine(v.X, P, color, { width: 2 });
+    svgLine(P, Q, color, { dashed: true, width: 1.6 });
+    svgTick(Q, color);
+    const out = { x: Q.x + (Q.x - v.X.x) * 0.09, y: Q.y + (Q.y - v.X.y) * 0.09 };
+    svgLabel(out, pct, color);
+  }
 
   function renderConstruction() {
     constructionGroup.innerHTML = '';
-    formulaText.textContent = FORMULAS[constructionMode];
-    if (constructionMode === 'none') return;
+    formulaText.innerHTML = FORMULAS[constructionMode];
     const P = barycentricToPoint(state.a, state.b, state.c);
 
     CONSTRUCTION_VERTS.forEach((v) => {
-      const value = state[v.key];
-      const pct = Math.round(value * 100) + '%';
       if (constructionMode === 'side') {
-        const foot = footOfPerpendicular(P, v.Y, v.Z);
-        const footFromVertex = footOfPerpendicular(v.X, v.Y, v.Z);
-        // faint reference line: the full height this distance is measured against
-        svgLine(v.X, footFromVertex, v.color, { dashed: true, dash: '2 4', width: 1, opacity: 0.35 });
-        svgLine(P, foot, v.color, { width: 2 });
-        svgTick(foot, v.color);
-        const out = { x: foot.x + (foot.x - v.X.x) * 0.09, y: foot.y + (foot.y - v.X.y) * 0.09 };
-        svgLabel(out, pct, v.color);
+        drawSideConstruction(v, P, v.color);
       } else if (constructionMode === 'corner') {
-        const Q = lineIntersect(v.X, P, v.Y, v.Z);
-        if (!Q) return;
-        svgLine(v.X, P, v.color, { width: 2 });
-        svgLine(P, Q, v.color, { dashed: true, width: 1.6 });
-        svgTick(Q, v.color);
-        const out = { x: Q.x + (Q.x - v.X.x) * 0.09, y: Q.y + (Q.y - v.X.y) * 0.09 };
-        svgLabel(out, pct, v.color);
+        drawCornerConstruction(v, P, v.color);
+      } else if (constructionMode === 'both') {
+        drawSideConstruction(v, P, METHOD_COLOR.side);
+        drawCornerConstruction(v, P, METHOD_COLOR.corner);
       }
     });
   }
