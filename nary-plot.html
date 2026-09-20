@@ -389,7 +389,7 @@
   function setState(newState) {
     state = normalize(newState);
     renderLivePoint();
-    renderDims();
+    refreshDimValues();
   }
 
   // Change a single dimension's value; redistribute the remainder proportionally among the rest.
