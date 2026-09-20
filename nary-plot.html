@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>N-ary Plot Explorer</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --ink-muted: #6b7280;
+    --border: #e2e2df;
+    --grid: #d8d8d4;
+    --axis: #9a9a94;
+    --live: #2563eb;
+    --set: #dc6b19;
+    --accent-hover: #1d4ed8;
+    --other: #9a9a94;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 48px;
+    gap: 20px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  .subtitle { color: var(--ink-muted); font-size: 13px; margin-top: -12px; text-align: center; max-width: 620px; }
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  #plotWrap {
+    position: relative;
+    touch-action: none;
+    width: 460px;
+    height: 460px;
+    overflow: hidden;
+  }
+  #plotWrap canvas { display: block; border-radius: 8px; cursor: grab; }
+  #plotWrap canvas:active { cursor: grabbing; }
+  .vertex-label {
+    position: absolute;
+    font-size: 13px;
+    font-weight: 600;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.9), 0 -1px 2px rgba(255,255,255,0.9);
+  }
+  .hint {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 11px;
+    color: var(--ink-muted);
+    pointer-events: none;
+    background: rgba(255,255,255,0.7);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .controls { width: 300px; display: flex; flex-direction: column; gap: 18px; }
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-muted);
+    margin-bottom: 8px;
+  }
+  .dims { display: flex; flex-direction: column; gap: 8px; }
+  .dim-row { display: flex; align-items: center; gap: 6px; }
+  .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .dim-row input.name-input {
+    width: 56px;
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 2px 3px;
+    border-radius: 4px;
+  }
+  .dim-row input.name-input:hover,
+  .dim-row input.name-input:focus {
+    border-color: var(--border);
+    background: var(--panel);
+    outline: none;
+  }
+  .dim-row input[type="range"] { flex: 1; accent-color: var(--live); }
+  .dim-row .val { width: 34px; text-align: right; font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .dim-row .remove-dim {
+    border: none;
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 4px;
+    line-height: 1;
+  }
+  .dim-row .remove-dim:hover { color: var(--set); }
+  .dim-row .remove-dim:disabled { opacity: 0.25; cursor: not-allowed; }
+  button#addDimBtn {
+    margin-top: 4px;
+    background: var(--panel);
+    color: var(--live);
+    border: 1px dashed var(--live);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button#addDimBtn:hover { background: #2563eb11; }
+  button#addDimBtn:disabled { opacity: 0.35; cursor: not-allowed; border-color: var(--ink-muted); color: var(--ink-muted); }
+  .picker { display: flex; flex-direction: column; gap: 6px; }
+  .picker-row { display: flex; align-items: center; gap: 8px; }
+  .picker-row .swatch { width: 12px; height: 12px; }
+  .picker-row select {
+    flex: 1;
+    font-size: 12px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .picker-row .vlabel { width: 58px; font-size: 12px; color: var(--ink-muted); font-weight: 600; }
+  .other-note { font-size: 11px; color: var(--ink-muted); margin-top: 2px; }
+  button#setBtn {
+    background: var(--live);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button#setBtn:hover { background: var(--accent-hover); }
+  #pointList {
+    list-style: none; margin: 0; padding: 0;
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 180px; overflow-y: auto;
+  }
+  #pointList li {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  }
+  #pointList li .coords { flex: 1; color: var(--ink-muted); }
+  #pointList li button {
+    border: none; background: transparent; color: var(--ink-muted);
+    cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px;
+  }
+  #pointList li button:hover { color: var(--set); }
+  .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--ink);
+    color: white;
+    font-size: 11px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+    max-width: 260px;
+  }
+</style>
+</head>
+<body>
+  <h1>N-ary Plot Explorer</h1>
+  <div class="subtitle">Any number of dimensions, projected to 3D by picking 3 axes — every other dimension collapses into the gray "Other" vertex. Drag to rotate &middot; click a face to place the point &middot; scroll to zoom &middot; shift+scroll to pull the point inward.</div>
+
+  <div class="layout">
+    <div class="panel" id="plotWrap">
+      <div class="tooltip" id="tooltip"></div>
+      <div class="hint">drag = rotate &middot; click face = set point &middot; shift+scroll = pull inward</div>
+    </div>
+
+    <div class="panel controls">
+      <div>
+        <div class="section-title">Dimensions</div>
+        <div class="dims" id="dimsList"></div>
+        <button id="addDimBtn">+ Add dimension</button>
+      </div>
+
+      <div>
+        <div class="section-title">3D axes (pick 3 of N)</div>
+        <div class="picker" id="pickerList"></div>
+        <div class="other-note" id="otherNote"></div>
+      </div>
+
+      <button id="setBtn">Add point (shortcut: 's')</button>
+
+      <div>
+        <div class="section-title" style="display:flex; justify-content:space-between; margin-bottom:6px;">
+          <span>Points</span>
+          <span id="countLabel" style="color:var(--ink-muted); text-transform:none; font-weight:600;">0</span>
+        </div>
+        <ul id="pointList"></ul>
+        <div class="empty-note" id="emptyNote">No points set yet.</div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+(function () {
+  const W = 460, H = 460;
+  const plotWrap = document.getElementById('plotWrap');
+  const tooltip = document.getElementById('tooltip');
+
+  const PALETTE = ['#c0392b', '#1f6f43', '#22559c', '#8e44ad', '#d68910', '#16a085', '#b03a5b', '#5d6d7e', '#7d3c98', '#a04000'];
+  const MAX_DIMS = PALETTE.length;
+  const MIN_DIMS = 3;
+  const OTHER_COLOR = '#9a9a94';
+
+  function nextName(index) {
+    return String.fromCharCode(65 + index); // A, B, C, ...
+  }
+
+  let uid = 0;
+  function makeDim(name, color) {
+    return { id: 'd' + (uid++), name, color };
+  }
+
+  let dims = [makeDim('A', PALETTE[0]), makeDim('B', PALETTE[1]), makeDim('C', PALETTE[2])];
+  let state = { [dims[0].id]: 1 / 3, [dims[1].id]: 1 / 3, [dims[2].id]: 1 / 3 };
+  let pick = [dims[0].id, dims[1].id, dims[2].id]; // 3 dim ids mapped to tetrahedron vertices A, B, C
+  const setPoints = [];
+
+  // --- Regular tetrahedron vertices, centered at origin (A/B/C = picked axes, D = "Other") ---
+  const RAW = {
+    A: new THREE.Vector3(1, 1, 1),
+    B: new THREE.Vector3(1, -1, -1),
+    C: new THREE.Vector3(-1, 1, -1),
+    D: new THREE.Vector3(-1, -1, 1),
+  };
+  const SCALE = 1.6;
+  const V = {};
+  for (const k in RAW) V[k] = RAW[k].clone().multiplyScalar(SCALE);
+
+  const FACES = {
+    A: ['B', 'C', 'D'],
+    B: ['A', 'C', 'D'],
+    C: ['A', 'B', 'D'],
+    D: ['A', 'B', 'C'],
+  };
+  const VKEYS = ['A', 'B', 'C', 'D'];
+
+  function barycentricToPoint3(a, b, c, d) {
+    return new THREE.Vector3()
+      .addScaledVector(V.A, a)
+      .addScaledVector(V.B, b)
+      .addScaledVector(V.C, c)
+      .addScaledVector(V.D, d);
+  }
+
+  function triBarycentric(p, p0, p1, p2) {
+    const v0 = new THREE.Vector3().subVectors(p1, p0);
+    const v1 = new THREE.Vector3().subVectors(p2, p0);
+    const v2 = new THREE.Vector3().subVectors(p, p0);
+    const d00 = v0.dot(v0), d01 = v0.dot(v1), d11 = v1.dot(v1);
+    const d20 = v2.dot(v0), d21 = v2.dot(v1);
+    const denom = d00 * d11 - d01 * d01;
+    const v = (d11 * d20 - d01 * d21) / denom;
+    const w = (d00 * d21 - d01 * d20) / denom;
+    const u = 1 - v - w;
+    return { u, v, w };
+  }
+
+  // --- Scene setup ---
+  const scene = new THREE.Scene();
+  scene.background = null;
+
+  const camera = new THREE.PerspectiveCamera(35, W / H, 0.1, 100);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(W, H);
+  plotWrap.insertBefore(renderer.domElement, plotWrap.firstChild);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(3, 4, 5);
+  scene.add(dirLight);
+
+  const positions = [];
+  for (const key of Object.keys(FACES)) {
+    const [k0, k1, k2] = FACES[key];
+    positions.push(V[k0].x, V[k0].y, V[k0].z, V[k1].x, V[k1].y, V[k1].z, V[k2].x, V[k2].y, V[k2].z);
+  }
+  const tetraGeom = new THREE.BufferGeometry();
+  tetraGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  tetraGeom.computeVertexNormals();
+
+  const faceMaterial = new THREE.MeshLambertMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const faceMesh = new THREE.Mesh(tetraGeom, faceMaterial);
+  scene.add(faceMesh);
+
+  const edgesGeom = new THREE.EdgesGeometry(tetraGeom);
+  const edgesMat = new THREE.LineBasicMaterial({ color: 0x9a9a94 });
+  scene.add(new THREE.LineSegments(edgesGeom, edgesMat));
+
+  const gridPoints = [];
+  for (const key of Object.keys(FACES)) {
+    const [k0, k1, k2] = FACES[key].map(k => V[k]);
+    for (let i = 1; i < 10; i++) {
+      const t = i / 10;
+      const pairs = [[k0, k1, k0, k2], [k1, k0, k1, k2], [k2, k0, k2, k1]];
+      for (const [sa, sb, sc, sd] of pairs) {
+        gridPoints.push(new THREE.Vector3().lerpVectors(sa, sb, t), new THREE.Vector3().lerpVectors(sc, sd, t));
+      }
+    }
+  }
+  const gridGeom = new THREE.BufferGeometry().setFromPoints(gridPoints);
+  const gridMat = new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 });
+  scene.add(new THREE.LineSegments(gridGeom, gridMat));
+
+  const liveSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.07, 20, 20),
+    new THREE.MeshLambertMaterial({ color: 0x2563eb })
+  );
+  scene.add(liveSphere);
+
+  const setPointsGroup = new THREE.Group();
+  scene.add(setPointsGroup);
+
+  // Vertex labels (HTML overlay, billboarded via projection each frame)
+  const labelEls = {};
+  for (const key of VKEYS) {
+    const el = document.createElement('div');
+    el.className = 'vertex-label';
+    plotWrap.appendChild(el);
+    labelEls[key] = el;
+  }
+
+  const camDir = new THREE.Vector3();
+  function updateLabels() {
+    camera.getWorldDirection(camDir);
+    for (const key of VKEYS) {
+      const toVertex = new THREE.Vector3().subVectors(V[key], camera.position);
+      const inFront = toVertex.dot(camDir) > 0;
+      if (!inFront) { labelEls[key].style.display = 'none'; continue; }
+      const p = V[key].clone().project(camera);
+      labelEls[key].style.left = ((p.x * 0.5 + 0.5) * W) + 'px';
+      labelEls[key].style.top = ((-p.y * 0.5 + 0.5) * H) + 'px';
+      labelEls[key].style.display = 'block';
+    }
+  }
+
+  function updateVertexLabels() {
+    for (let i = 0; i < 3; i++) {
+      const dim = dimById(pick[i]);
+      const el = labelEls[VKEYS[i]];
+      el.textContent = dim ? dim.name : '?';
+      el.style.color = dim ? dim.color : '#000';
+    }
+    const otherEl = labelEls.D;
+    const n = otherDims().length;
+    otherEl.textContent = n > 0 ? `Other (${n})` : '';
+    otherEl.style.color = OTHER_COLOR;
+    otherEl.style.opacity = n > 0 ? '1' : '0.35';
+  }
+
+  // --- Orbit camera (hand-rolled: drag to rotate, wheel to zoom) ---
+  let radius = 6.2, theta = Math.PI * 0.28, phi = Math.PI * 0.32;
+  function updateCamera() {
+    const sinPhi = Math.sin(phi);
+    camera.position.set(radius * sinPhi * Math.sin(theta), radius * Math.cos(phi), radius * sinPhi * Math.cos(theta));
+    camera.lookAt(0, 0, 0);
+  }
+  updateCamera();
+
+  // --- Dimension / picker helpers ---
+  function dimById(id) { return dims.find(d => d.id === id); }
+  function otherDims() { return dims.filter(d => !pick.includes(d.id)); }
+  function otherSum() { return otherDims().reduce((s, d) => s + state[d.id], 0); }
+
+  // Current projected barycentric coords (x,y,z = picked dims, w = everything else combined)
+  function projected() {
+    return { x: state[pick[0]], y: state[pick[1]], z: state[pick[2]], w: otherSum() };
+  }
+
+  function renderLivePoint() {
+    const { x, y, z, w } = projected();
+    liveSphere.position.copy(barycentricToPoint3(x, y, z, w));
+  }
+
+  // --- State mutation ---
+  function normalize(obj) {
+    const sum = dims.reduce((s, d) => s + (obj[d.id] || 0), 0);
+    if (sum > 0) dims.forEach(d => { obj[d.id] = (obj[d.id] || 0) / sum; });
+    else dims.forEach(d => { obj[d.id] = 1 / dims.length; });
+    return obj;
+  }
+
+  function setState(newState) {
+    state = normalize(newState);
+    renderLivePoint();
+    renderDims();
+  }
+
+  // Change a single dimension's value; redistribute the remainder proportionally among the rest.
+  function setDimValue(id, newVal) {
+    newVal = Math.max(0, Math.min(1, newVal));
+    const others = dims.map(d => d.id).filter(k => k !== id);
+    const otherSumCur = others.reduce((s, k) => s + state[k], 0);
+    const remaining = 1 - newVal;
+    const next = { [id]: newVal };
+    if (otherSumCur > 0) {
+      others.forEach(k => { next[k] = state[k] / otherSumCur * remaining; });
+    } else {
+      others.forEach(k => { next[k] = remaining / others.length; });
+    }
+    setState(next);
+  }
+
+  // Set the projected point: 3 picked axes directly, "other" total distributed proportionally
+  // across whichever dimensions are currently not picked (equally if they were all zero).
+  function setProjected(x, y, z, w) {
+    const rest = otherDims();
+    const next = { [pick[0]]: x, [pick[1]]: y, [pick[2]]: z };
+    if (rest.length === 0) {
+      setState(next);
+      return;
+    }
+    const restSumCur = rest.reduce((s, d) => s + state[d.id], 0);
+    rest.forEach(d => {
+      next[d.id] = restSumCur > 0 ? (state[d.id] / restSumCur) * w : w / rest.length;
+    });
+    setState(next);
+  }
+
+  function addDimension() {
+    if (dims.length >= MAX_DIMS) return;
+    const dim = makeDim(nextName(dims.length), PALETTE[dims.length]);
+    const newVal = 1 / (dims.length + 1);
+    const scale = 1 - newVal;
+    const next = { [dim.id]: newVal };
+    dims.forEach(d => { next[d.id] = state[d.id] * scale; });
+    dims.push(dim);
+    state = next;
+    renderDims();
+    renderPicker();
+    renderLivePoint();
+    renderSetPoints();
+  }
+
+  function removeDimension(id) {
+    if (dims.length <= MIN_DIMS) return;
+    const removedVal = state[id];
+    dims = dims.filter(d => d.id !== id);
+    const sumRest = dims.reduce((s, d) => s + state[d.id], 0);
+    const next = {};
+    dims.forEach(d => {
+      next[d.id] = sumRest > 0 ? state[d.id] + (state[d.id] / sumRest) * removedVal : 1 / dims.length;
+    });
+    state = normalize(next);
+    if (pick.includes(id)) {
+      // Replace the removed axis with the first dim not already picked.
+      const replacement = dims.find(d => !pick.includes(d.id)) || dims[0];
+      pick = pick.map(p => p === id ? replacement.id : p);
+    }
+    renderDims();
+    renderPicker();
+    renderLivePoint();
+    renderSetPoints();
+  }
+
+  function renameDimension(id, name) {
+    const dim = dimById(id);
+    if (dim) dim.name = name || dim.name;
+    updateVertexLabels();
+    renderPointList();
+  }
+
+  // --- Dimensions panel ---
+  const dimsList = document.getElementById('dimsList');
+  function renderDims() {
+    dimsList.innerHTML = '';
+    dims.forEach(dim => {
+      const row = document.createElement('div');
+      row.className = 'dim-row';
+
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = dim.color;
+
+      const nameInput = document.createElement('input');
+      nameInput.className = 'name-input';
+      nameInput.value = dim.name;
+      nameInput.maxLength = 12;
+      nameInput.addEventListener('input', () => renameDimension(dim.id, nameInput.value));
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = 0; slider.max = 100;
+      slider.value = Math.round(state[dim.id] * 100);
+      slider.addEventListener('input', () => setDimValue(dim.id, +slider.value / 100));
+
+      const val = document.createElement('span');
+      val.className = 'val';
+      val.textContent = Math.round(state[dim.id] * 100) + '%';
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-dim';
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove dimension';
+      removeBtn.disabled = dims.length <= MIN_DIMS;
+      removeBtn.addEventListener('click', () => removeDimension(dim.id));
+
+      row.appendChild(swatch);
+      row.appendChild(nameInput);
+      row.appendChild(slider);
+      row.appendChild(val);
+      row.appendChild(removeBtn);
+      dimsList.appendChild(row);
+    });
+    document.getElementById('addDimBtn').disabled = dims.length >= MAX_DIMS;
+    updateVertexLabels();
+  }
+
+  // Refresh just the slider positions/labels without rebuilding the DOM (used after 3D edits).
+  function refreshDimValues() {
+    dimsList.querySelectorAll('.dim-row').forEach((row, i) => {
+      const dim = dims[i];
+      row.querySelector('input[type="range"]').value = Math.round(state[dim.id] * 100);
+      row.querySelector('.val').textContent = Math.round(state[dim.id] * 100) + '%';
+    });
+    updateVertexLabels();
+  }
+
+  // --- Axis picker panel ---
+  const pickerList = document.getElementById('pickerList');
+  const otherNote = document.getElementById('otherNote');
+  const PICKER_COLORS = ['#c0392b', '#1f6f43', '#22559c'];
+  const PICKER_LABELS = ['Vertex X', 'Vertex Y', 'Vertex Z'];
+
+  function renderPicker() {
+    pickerList.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const row = document.createElement('div');
+      row.className = 'picker-row';
+
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = PICKER_COLORS[i];
+
+      const label = document.createElement('span');
+      label.className = 'vlabel';
+      label.textContent = PICKER_LABELS[i];
+
+      const select = document.createElement('select');
+      dims.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name;
+        opt.selected = pick[i] === d.id;
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', () => {
+        const newId = select.value;
+        const oldId = pick[i];
+        if (newId === oldId) return;
+        const collideIdx = pick.indexOf(newId);
+        if (collideIdx !== -1) pick[collideIdx] = oldId; // swap
+        pick[i] = newId;
+        renderPicker();
+        updateVertexLabels();
+        renderLivePoint();
+        renderSetPoints();
+      });
+
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(select);
+      pickerList.appendChild(row);
+    }
+    const n = otherDims().length;
+    otherNote.textContent = n > 0
+      ? `Gray vertex = "Other" = the remaining ${n} dimension${n === 1 ? '' : 's'} combined.`
+      : 'All dimensions are picked — the gray "Other" vertex is unused, so points sit flat on the front face.';
+  }
+
+  // --- Pointer interaction: drag = orbit, click (no drag) on a face = set point ---
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
+
+  function setNdcFromEvent(ev) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  // Picking a face gives only a boundary point (2 DOF from a 2D click). To reach the
+  // interior (the 3rd DOF), we treat the tetrahedron as a cone over that face toward
+  // the opposite vertex: every interior point lies on exactly one segment from some
+  // face point to that vertex. Shift+scroll slides along that segment (see pullState).
+  function pickFacePoint(ev) {
+    setNdcFromEvent(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObject(faceMesh, false);
+    if (!hits.length) return null;
+    const hit = hits[0];
+    const faceIdx = Math.floor(hit.faceIndex);
+    const faceKey = VKEYS[faceIdx]; // vertex opposite this face
+    const [k0, k1, k2] = FACES[faceKey].map(k => V[k]);
+    const { u, v, w } = triBarycentric(hit.point, k0, k1, k2);
+    const face = {};
+    face[FACES[faceKey][0]] = u;
+    face[FACES[faceKey][1]] = v;
+    face[FACES[faceKey][2]] = w;
+    return { faceKey, face };
+  }
+
+  // Active face-pull: a point picked on a face, plus how far it's been pulled (t)
+  // toward that face's opposite vertex. null once the sliders are touched directly.
+  let pullState = null;
+
+  function vertexWeights(faceKey, face, t) {
+    const next = { A: 0, B: 0, C: 0, D: 0 };
+    next[faceKey] = t;
+    VKEYS.filter(k => k !== faceKey).forEach(k => { next[k] = (face[k] || 0) * (1 - t); });
+    return next;
+  }
+
+  function applyPullState() {
+    const { faceKey, face, t } = pullState;
+    const wts = vertexWeights(faceKey, face, t);
+    setProjected(wts.A, wts.B, wts.C, wts.D);
+    refreshDimValues();
+  }
+
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    dragging = true; dragMoved = false;
+    lastX = ev.clientX; lastY = ev.clientY;
+    renderer.domElement.setPointerCapture(ev.pointerId);
+  });
+
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if (dragging) {
+      const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+      if (dragMoved) {
+        theta -= dx * 0.008;
+        phi = Math.max(0.12, Math.min(Math.PI - 0.12, phi - dy * 0.008));
+        updateCamera();
+      }
+      lastX = ev.clientX; lastY = ev.clientY;
+    } else {
+      setNdcFromEvent(ev);
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObjects(setPointsGroup.children, false);
+      if (hits.length) showTooltip(ev, hits[0].object.userData.pt);
+      else hideTooltip();
+    }
+  });
+
+  renderer.domElement.addEventListener('pointerup', (ev) => {
+    dragging = false;
+    if (!dragMoved) {
+      const picked = pickFacePoint(ev);
+      if (picked) {
+        pullState = { faceKey: picked.faceKey, face: picked.face, t: 0 };
+        applyPullState();
+      }
+    }
+  });
+
+  renderer.domElement.addEventListener('pointerleave', hideTooltip);
+
+  renderer.domElement.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    if (ev.shiftKey && pullState) {
+      pullState.t = Math.max(0, Math.min(1, pullState.t + ev.deltaY * 0.0015));
+      applyPullState();
+      return;
+    }
+    radius = Math.max(3, Math.min(14, radius + ev.deltaY * 0.004));
+    updateCamera();
+  }, { passive: false });
+
+  // --- Set points ---
+  function recordPoint() {
+    const pt = {};
+    dims.forEach(d => { pt[d.id] = state[d.id]; });
+    setPoints.push(pt);
+    renderSetPoints();
+  }
+
+  function pointLabel(pt) {
+    return dims.map(d => `${d.name} ${Math.round((pt[d.id] || 0) * 100)}%`).join(' · ');
+  }
+
+  function renderSetPoints() {
+    setPointsGroup.clear();
+    setPoints.forEach((pt) => {
+      const x = pt[pick[0]] || 0, y = pt[pick[1]] || 0, z = pt[pick[2]] || 0;
+      const w = dims.reduce((s, d) => s + (pick.includes(d.id) ? 0 : (pt[d.id] || 0)), 0);
+      const p = barycentricToPoint3(x, y, z, w);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 16, 16),
+        new THREE.MeshLambertMaterial({ color: 0xdc6b19 })
+      );
+      mesh.position.copy(p);
+      mesh.userData.pt = pt;
+      setPointsGroup.add(mesh);
+    });
+    renderPointList();
+  }
+
+  function renderPointList() {
+    const pointList = document.getElementById('pointList');
+    const countLabel = document.getElementById('countLabel');
+    const emptyNote = document.getElementById('emptyNote');
+    pointList.innerHTML = '';
+    setPoints.forEach((pt, i) => {
+      const li = document.createElement('li');
+      const coords = document.createElement('span');
+      coords.className = 'coords';
+      coords.textContent = pointLabel(pt);
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', () => {
+        setPoints.splice(i, 1);
+        renderSetPoints();
+      });
+      li.appendChild(coords);
+      li.appendChild(removeBtn);
+      pointList.appendChild(li);
+    });
+    countLabel.textContent = setPoints.length;
+    emptyNote.style.display = setPoints.length ? 'none' : 'block';
+  }
+
+  function showTooltip(ev, pt) {
+    const rect = plotWrap.getBoundingClientRect();
+    tooltip.style.left = (ev.clientX - rect.left) + 'px';
+    tooltip.style.top = (ev.clientY - rect.top) + 'px';
+    tooltip.textContent = pointLabel(pt);
+    tooltip.style.opacity = '1';
+  }
+  function hideTooltip() { tooltip.style.opacity = '0'; }
+
+  document.getElementById('setBtn').addEventListener('click', recordPoint);
+  document.getElementById('addDimBtn').addEventListener('click', addDimension);
+  document.addEventListener('keydown', (ev) => {
+    if ((ev.key === 's' || ev.key === 'S') && document.activeElement.tagName !== 'INPUT') {
+      ev.preventDefault();
+      recordPoint();
+    }
+  });
+
+  // --- Render loop ---
+  function animate() {
+    requestAnimationFrame(animate);
+    updateLabels();
+    renderer.render(scene, camera);
+  }
+
+  // init
+  renderDims();
+  renderPicker();
+  renderLivePoint();
+  renderSetPoints();
+  animate();
+})();
+</script>
+</body>
+</html>
