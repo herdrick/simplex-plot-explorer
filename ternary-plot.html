@@ -185,9 +185,9 @@
     font-size: 11.5px;
     color: var(--ink);
     padding: 1px 0;
-    white-space: nowrap;
-    overflow-x: auto;
+    line-height: 1.5;
   }
+  .calc-row .rowhead { white-space: nowrap; }
   .calc-row .swatch { margin-right: 5px; }
   .tooltip {
     position: absolute;
@@ -447,7 +447,7 @@
   function pct(n) { return Math.round(n * 100) + '%'; }
 
   function swatchRow(color, label, html) {
-    return `<div class="calc-row"><span class="swatch" style="background:${color}"></span><b>${label}</b>=${html}</div>`;
+    return `<div class="calc-row"><span class="rowhead"><span class="swatch" style="background:${color}"></span><b>${label}</b> =</span> ${html}</div>`;
   }
 
   function drawSideConstruction(v, P, color) {
@@ -461,7 +461,7 @@
     svgTick(foot, color);
     const out = { x: foot.x + (foot.x - v.X.x) * 0.09, y: foot.y + (foot.y - v.X.y) * 0.09 };
     svgLabel(out, pct(d / h), color);
-    return swatchRow(v.color, v.key.toUpperCase(), `${px(d)}/${px(h)}=${pct(d / h)}`);
+    return swatchRow(v.color, v.key.toUpperCase(), `${px(d)} / ${px(h)} = ${pct(d / h)}`);
   }
 
   function drawCornerConstruction(v, P, color) {
@@ -474,7 +474,7 @@
     svgTick(Q, color);
     const out = { x: Q.x + (Q.x - v.X.x) * 0.09, y: Q.y + (Q.y - v.X.y) * 0.09 };
     svgLabel(out, pct(1 - dXP / dXQ), color);
-    return swatchRow(v.color, v.key.toUpperCase(), `1-${px(dXP)}/${px(dXQ)}=1-${(dXP / dXQ).toFixed(2)}=${pct(1 - dXP / dXQ)}`);
+    return swatchRow(v.color, v.key.toUpperCase(), `1 - ${px(dXP)} / ${px(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(1 - dXP / dXQ)}`);
   }
 
   function renderConstruction() {
