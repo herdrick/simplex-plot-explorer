@@ -489,12 +489,16 @@
     const src = pointOverride || state;
     const P = pointFromValues(src);
     const isTetra = activeKeys().length === 4;
-    const faceRows = [], cornerRows = [];
+    const faceRows = [], cornerRows = [], droppedRows = [];
 
-    activeKeys().forEach((key, i) => {
-      const dim = dimById(pick[i]);
-      const geom = CONSTRUCTION_GEOM[key];
-      if (!dim || !geom) return;
+    dims.forEach((dim) => {
+      const i = pick.indexOf(dim.id);
+      if (i === -1) {
+        droppedRows.push(swatchRow(dim.color, dim.name, `${pct(src[dim.id] || 0)} — set directly (not a corner, not part of the geometric construction)`));
+        return;
+      }
+      const geom = CONSTRUCTION_GEOM[CORNER_KEYS[i]];
+      if (!geom) return;
       if (constructionMode === 'face') {
         faceRows.push(drawFaceConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
       } else if (constructionMode === 'corner') {
@@ -511,6 +515,9 @@
     }
     if (cornerRows.length) {
       html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE[isTetra]}</div>${cornerRows.join('')}`;
+    }
+    if (droppedRows.length) {
+      html += `<div class="calc-heading" style="color:var(--ink-muted)">Not corners right now</div>${droppedRows.join('')}`;
     }
     formulaText.innerHTML = html;
   }
