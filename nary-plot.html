@@ -133,20 +133,6 @@
   }
   button#addDimBtn:hover { background: #2563eb11; }
   button#addDimBtn:disabled { opacity: 0.35; cursor: not-allowed; border-color: var(--ink-muted); color: var(--ink-muted); }
-  .picker { display: flex; flex-direction: column; gap: 6px; }
-  .picker-row { display: flex; align-items: center; gap: 8px; }
-  .picker-row .swatch { width: 12px; height: 12px; }
-  .picker-row select {
-    flex: 1;
-    font-size: 12px;
-    padding: 5px 6px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--panel);
-    color: var(--ink);
-  }
-  .picker-row .vlabel { width: 58px; font-size: 12px; color: var(--ink-muted); font-weight: 600; }
-  .picker-note { font-size: 11px; color: var(--ink-muted); margin-top: 2px; }
   button#setBtn {
     background: var(--live);
     color: white;
@@ -269,12 +255,6 @@
         <button id="addDimBtn">+ Add dimension</button>
       </div>
 
-      <div>
-        <div class="section-title">Corners</div>
-        <div class="picker" id="pickerList"></div>
-        <div class="picker-note" id="pickerNote"></div>
-      </div>
-
       <button id="setBtn">Add point (shortcut: 's')</button>
 
       <div>
@@ -321,8 +301,6 @@
   const PALETTE = ['#c0392b', '#1f6f43', '#22559c', '#8e44ad', '#d68910', '#16a085', '#b03a5b', '#5d6d7e', '#7d3c98', '#a04000'];
   const MAX_DIMS = PALETTE.length;
   const MIN_DIMS = 3;
-  const MAX_CORNERS = 4;
-  const CORNER_KEYS = ['A', 'B', 'C', 'D'];
 
   function nextName(index) {
     return String.fromCharCode(65 + index); // A, B, C, ...
@@ -336,20 +314,47 @@
   let dims = ['A', 'B', 'C', 'D', 'E'].map((name, i) => makeDim(name, PALETTE[i]));
   let state = {};
   dims.forEach(d => { state[d.id] = 1 / dims.length; });
-  let pick = defaultPick(); // dim ids occupying the shape's corners, in CORNER_KEYS order
   const setPoints = [];
 
-  // Regular tetrahedron vertices, centered at origin (their sum is exactly zero — the key
-  // property that makes "dropped" weight visually pull the point toward the center).
-  const RAW = {
-    A: new THREE.Vector3(1, 1, 1),
-    B: new THREE.Vector3(1, -1, -1),
-    C: new THREE.Vector3(-1, 1, -1),
-    D: new THREE.Vector3(-1, -1, 1),
-  };
-  const SCALE = 1.6;
-  const V = {};
-  for (const k in RAW) V[k] = RAW[k].clone().multiplyScalar(SCALE);
+  // Every dimension is always a corner of the shape — there is no picking or dropping.
+  // Vertex positions are always centered at the origin (they sum to zero); for n=3/4 this
+  // is an exact equilateral triangle / regular tetrahedron, for n>=5 it's a reasonable
+  // (not perfectly regular) spread of points over a sphere, recentered to sum to zero.
+  // That centering is what a lot of the math below leans on.
+  function computeVertices(n) {
+    if (n === 3) {
+      const R = 1.7;
+      return [0, 1, 2].map((i) => {
+        const angle = Math.PI / 2 + i * (2 * Math.PI / 3);
+        return new THREE.Vector3(R * Math.cos(angle), R * Math.sin(angle), 0);
+      });
+    }
+    if (n === 4) {
+      const RAW = [
+        new THREE.Vector3(1, 1, 1),
+        new THREE.Vector3(1, -1, -1),
+        new THREE.Vector3(-1, 1, -1),
+        new THREE.Vector3(-1, -1, 1),
+      ];
+      return RAW.map(v => v.clone().multiplyScalar(1.6));
+    }
+    const R = 1.8;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const y = 1 - (i / (n - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const theta = golden * i;
+      pts.push(new THREE.Vector3(Math.cos(theta) * r, y, Math.sin(theta) * r).multiplyScalar(R));
+    }
+    const centroid = new THREE.Vector3();
+    pts.forEach(p => centroid.add(p));
+    centroid.divideScalar(n);
+    pts.forEach(p => p.sub(centroid));
+    return pts;
+  }
+
+  let V = computeVertices(dims.length);
 
   function triBarycentric(p, p0, p1, p2) {
     const v0 = new THREE.Vector3().subVectors(p1, p0);
@@ -372,28 +377,6 @@
     return new THREE.Vector3().copy(a).addScaledVector(ab, t);
   }
 
-  function footOfPerpendicular3(p, a, b) {
-    const ab = new THREE.Vector3().subVectors(b, a);
-    const len2 = ab.lengthSq();
-    const t = len2 === 0 ? 0 : new THREE.Vector3().subVectors(p, a).dot(ab) / len2;
-    return new THREE.Vector3().copy(a).addScaledVector(ab, t);
-  }
-
-  // Intersection of two coplanar lines p1+t*d1 and p2+s*d2 (the standard closest-approach
-  // formula, exact when the lines are coplanar — true here since every point involved lies
-  // in the triangle's own plane).
-  function coplanarLineIntersect(p1, d1, p2, d2) {
-    const r = new THREE.Vector3().subVectors(p2, p1);
-    const cross1 = new THREE.Vector3().crossVectors(d1, d2);
-    const denom = cross1.lengthSq();
-    if (denom < 1e-9) return null;
-    const crossR2 = new THREE.Vector3().crossVectors(r, d2);
-    const t = crossR2.dot(cross1) / denom;
-    return new THREE.Vector3().copy(p1).addScaledVector(d1, t);
-  }
-
-  function hexColor(css) { return parseInt(css.slice(1), 16); }
-
   function clampToTriangle3(p, A, B, C) {
     const { u, v, w } = triBarycentric(p, A, B, C);
     if (u >= 0 && v >= 0 && w >= 0) return p;
@@ -402,6 +385,8 @@
     candidates.forEach((c) => { const d = c.distanceToSquared(p); if (d < bestDist) { bestDist = d; best = c; } });
     return best;
   }
+
+  function hexColor(css) { return parseInt(css.slice(1), 16); }
 
   // --- Scene setup ---
   const scene = new THREE.Scene();
@@ -428,24 +413,22 @@
   scene.add(setPointsGroup);
 
   // --- Construction overlay: visualizes how each corner's weight is computed ---
-  // Each barycentric weight can be read two equivalent ways:
-  //  - "from face": how far P is from the opposite face (plane, or side in triangle mode),
-  //    relative to the vertex's height
-  //  - "from corner": how far along the vertex-through-P ray P sits before it reaches
-  //    the opposite face
+  // For a vertex set centered at the origin, the centroid of every OTHER vertex is always
+  // a negative multiple of this vertex (C_i = -X_i/(n-1), straight from Σ X_j = 0), so the
+  // "opposite plane" — through that centroid, facing this vertex — is fully determined by
+  // X_i alone. For n=3/4 (our exact regular triangle/tetrahedron) this is exactly the true
+  // opposite side/face; for n>=5 it's the natural generalization (the vertices generally
+  // aren't coplanar past 4, so "opposite plane" becomes an honest approximation).
   const constructionGroup = new THREE.Group();
   scene.add(constructionGroup);
   let constructionMode = 'both';
-  let CONSTRUCTION_GEOM = {}; // rebuilt in buildSceneGeometry(), keyed by CORNER_KEYS
+  let CONSTRUCTION_GEOM = {}; // keyed by dim id, rebuilt whenever V changes
 
   const METHOD_COLOR = { face: '#7c3aed', corner: '#0d9488' };
   const METHOD_COLOR_HEX = { face: 0x7c3aed, corner: 0x0d9488 };
   const formulaText = document.getElementById('formulaText');
-  const FACE_TEMPLATE = { true: 'value = distance(P, opposite face) ÷ height from vertex', false: 'value = distance(P, opposite side) ÷ height from vertex' };
-  const CORNER_TEMPLATE = {
-    true: 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P hits the opposite face)',
-    false: 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P hits the opposite side)',
-  };
+  const FACE_TEMPLATE = 'value = distance(P, opposite plane) ÷ height from vertex';
+  const CORNER_TEMPLATE = 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P meets the opposite plane)';
 
   function pct(n) { return Math.round(n * 100) + '%'; }
   function un(n) { return n.toFixed(2); }
@@ -488,20 +471,38 @@
     return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
   }
 
+  function buildConstructionGeom() {
+    const n = dims.length;
+    CONSTRUCTION_GEOM = {};
+    dims.forEach((dim, i) => {
+      const X = V[i];
+      const normal = X.clone().normalize();
+      const oppositeCentroid = X.clone().multiplyScalar(-1 / (n - 1));
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, oppositeCentroid);
+      CONSTRUCTION_GEOM[dim.id] = {
+        X,
+        footOf: (p) => plane.projectPoint(p, new THREE.Vector3()),
+        rayHit: (p) => {
+          const dir = new THREE.Vector3().subVectors(p, X);
+          if (dir.lengthSq() < 1e-9) return null;
+          dir.normalize();
+          const ray = new THREE.Ray(X, dir);
+          const Q = new THREE.Vector3();
+          return ray.intersectPlane(plane, Q) ? Q : null;
+        },
+        height: X.distanceTo(oppositeCentroid),
+      };
+    });
+  }
+
   function renderConstruction(pointOverride) {
     constructionGroup.clear();
     const src = pointOverride || state;
     const P = pointFromValues(src);
-    const isTetra = activeKeys().length === 4;
-    const faceRows = [], cornerRows = [], droppedRows = [];
+    const faceRows = [], cornerRows = [];
 
     dims.forEach((dim) => {
-      const i = pick.indexOf(dim.id);
-      if (i === -1) {
-        droppedRows.push(swatchRow(dim.color, dim.name, `${pct(src[dim.id] || 0)} — set directly (not a corner, not part of the geometric construction)`));
-        return;
-      }
-      const geom = CONSTRUCTION_GEOM[CORNER_KEYS[i]];
+      const geom = CONSTRUCTION_GEOM[dim.id];
       if (!geom) return;
       if (constructionMode === 'face') {
         faceRows.push(drawFaceConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
@@ -515,54 +516,53 @@
 
     let html = '';
     if (faceRows.length) {
-      html += `<div class="calc-heading" style="color:${METHOD_COLOR.face}">${FACE_TEMPLATE[isTetra]}</div>${faceRows.join('')}`;
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.face}">${FACE_TEMPLATE}</div>${faceRows.join('')}`;
     }
     if (cornerRows.length) {
-      html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE[isTetra]}</div>${cornerRows.join('')}`;
-    }
-    if (droppedRows.length) {
-      html += `<div class="calc-heading" style="color:var(--ink-muted)">Not corners right now</div>${droppedRows.join('')}`;
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE}</div>${cornerRows.join('')}`;
     }
     formulaText.innerHTML = html;
   }
 
-  document.querySelectorAll('.segmented button').forEach((btn) => {
+  document.querySelectorAll('.segmented button[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       constructionMode = btn.dataset.mode;
-      document.querySelectorAll('.segmented button').forEach((b) => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.segmented button[data-mode]').forEach((b) => b.classList.toggle('active', b === btn));
       renderConstruction();
     });
   });
 
-  // Vertex labels (HTML overlay, billboarded via projection each frame)
-  const labelEls = {};
-  CORNER_KEYS.forEach((key) => {
+  // Vertex labels (HTML overlay, billboarded via projection each frame) — a fixed pool
+  // sized to MAX_DIMS, with unused ones simply hidden.
+  const labelEls = [];
+  for (let i = 0; i < MAX_DIMS; i++) {
     const el = document.createElement('div');
     el.className = 'vertex-label';
+    el.style.display = 'none';
     plotWrap.appendChild(el);
-    labelEls[key] = el;
-  });
+    labelEls.push(el);
+  }
 
   const camDir = new THREE.Vector3();
   function updateLabels() {
     camera.getWorldDirection(camDir);
-    activeKeys().forEach((key) => {
-      const toVertex = new THREE.Vector3().subVectors(V[key], camera.position);
+    dims.forEach((dim, i) => {
+      const el = labelEls[i];
+      const toVertex = new THREE.Vector3().subVectors(V[i], camera.position);
       const inFront = toVertex.dot(camDir) > 0;
-      if (!inFront) { labelEls[key].style.display = 'none'; return; }
-      const p = V[key].clone().project(camera);
-      labelEls[key].style.left = ((p.x * 0.5 + 0.5) * W) + 'px';
-      labelEls[key].style.top = ((-p.y * 0.5 + 0.5) * H) + 'px';
-      labelEls[key].style.display = 'block';
+      if (!inFront) { el.style.display = 'none'; return; }
+      const p = V[i].clone().project(camera);
+      el.style.left = ((p.x * 0.5 + 0.5) * W) + 'px';
+      el.style.top = ((-p.y * 0.5 + 0.5) * H) + 'px';
+      el.style.display = 'block';
     });
+    for (let i = dims.length; i < MAX_DIMS; i++) labelEls[i].style.display = 'none';
   }
 
   function updateVertexLabels() {
-    CORNER_KEYS.forEach((key, i) => {
-      const dim = dimById(pick[i]);
-      const el = labelEls[key];
-      el.style.display = dim ? '' : 'none';
-      if (dim) { el.textContent = dim.name; el.style.color = dim.color; }
+    dims.forEach((dim, i) => {
+      labelEls[i].textContent = dim.name;
+      labelEls[i].style.color = dim.color;
     });
   }
 
@@ -575,14 +575,9 @@
   }
   updateCamera();
 
-  // --- Dimension / corner helpers ---
-  function dimById(id) { return dims.find(d => d.id === id); }
-  function activeKeys() { return CORNER_KEYS.slice(0, pick.length); }
-  function droppedDims() { return dims.filter(d => !pick.includes(d.id)); }
-
   function pointFromValues(weightsById) {
     const p = new THREE.Vector3();
-    pick.forEach((id, i) => { p.addScaledVector(V[CORNER_KEYS[i]], weightsById[id] || 0); });
+    dims.forEach((d, i) => { p.addScaledVector(V[i], weightsById[d.id] || 0); });
     return p;
   }
 
@@ -620,17 +615,13 @@
     setState(next);
   }
 
-  // Set the corner weights directly (they should sum to 1); every dropped dimension is zeroed,
-  // since a 3D gesture can only ever assign the full 100% to whatever corners are showing.
-  function setCorners(weights) {
+  // Set every corner weight directly (they should sum to 1) — used by the pointer
+  // interactions, which are only defined for n=3 (drag on the triangle) and n=4
+  // (click a face + pull).
+  function setWeights(weights) {
     const next = {};
-    pick.forEach((id, i) => { next[id] = weights[i]; });
-    droppedDims().forEach(d => { next[d.id] = 0; });
+    dims.forEach((d, i) => { next[d.id] = weights[i]; });
     setState(next);
-  }
-
-  function defaultPick() {
-    return dims.slice(0, Math.min(MAX_CORNERS, dims.length)).map(d => d.id);
   }
 
   function addDimension() {
@@ -642,7 +633,6 @@
     dims.forEach(d => { next[d.id] = state[d.id] * scale; });
     dims.push(dim);
     state = next;
-    if (dims.length <= MAX_CORNERS) pick = defaultPick();
     rebuildAfterStructureChange();
   }
 
@@ -656,28 +646,21 @@
       next[d.id] = sumRest > 0 ? state[d.id] + (state[d.id] / sumRest) * removedVal : 1 / dims.length;
     });
     state = normalize(next);
-
-    pick = pick.filter(p => p !== id);
-    if (dims.length <= MAX_CORNERS) {
-      pick = defaultPick();
-    } else {
-      const candidate = dims.find(d => !pick.includes(d.id));
-      if (candidate) pick.push(candidate.id);
-    }
     rebuildAfterStructureChange();
   }
 
   function renameDimension(id, name) {
-    const dim = dimById(id);
+    const dim = dims.find(d => d.id === id);
     if (dim) dim.name = name || dim.name;
     updateVertexLabels();
     renderPointList();
   }
 
   function rebuildAfterStructureChange() {
+    V = computeVertices(dims.length);
     buildSceneGeometry();
     renderDims();
-    renderPicker();
+    updateVertexLabels();
     renderLivePoint();
     renderSetPoints();
   }
@@ -725,7 +708,6 @@
       dimsList.appendChild(row);
     });
     document.getElementById('addDimBtn').disabled = dims.length >= MAX_DIMS;
-    updateVertexLabels();
   }
 
   // Refresh just the slider positions/labels without rebuilding the DOM (used after 3D edits).
@@ -735,78 +717,22 @@
       row.querySelector('input[type="range"]').value = Math.round(state[dim.id] * 100);
       row.querySelector('.val').textContent = Math.round(state[dim.id] * 100) + '%';
     });
-    updateVertexLabels();
   }
 
-  // --- Corner picker panel ---
-  const pickerList = document.getElementById('pickerList');
-  const pickerNote = document.getElementById('pickerNote');
-
-  function renderPicker() {
-    pickerList.innerHTML = '';
-    const forced = dims.length <= MAX_CORNERS;
-    for (let i = 0; i < pick.length; i++) {
-      const row = document.createElement('div');
-      row.className = 'picker-row';
-
-      const dim = dimById(pick[i]);
-      const swatch = document.createElement('span');
-      swatch.className = 'swatch';
-      swatch.style.background = dim ? dim.color : '#ccc';
-
-      const label = document.createElement('span');
-      label.className = 'vlabel';
-      label.textContent = 'Corner ' + (i + 1);
-
-      const select = document.createElement('select');
-      select.disabled = forced;
-      dims.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.id;
-        opt.textContent = d.name;
-        opt.selected = pick[i] === d.id;
-        select.appendChild(opt);
-      });
-      select.addEventListener('change', () => {
-        const newId = select.value;
-        const oldId = pick[i];
-        if (newId === oldId) return;
-        const collideIdx = pick.indexOf(newId);
-        if (collideIdx !== -1) pick[collideIdx] = oldId; // swap
-        pick[i] = newId;
-        renderPicker();
-        updateVertexLabels();
-        renderLivePoint();
-        renderSetPoints();
-      });
-
-      row.appendChild(swatch);
-      row.appendChild(label);
-      row.appendChild(select);
-      pickerList.appendChild(row);
-    }
-
-    const dropped = droppedDims();
-    if (forced) {
-      pickerNote.textContent = pick.length === 3
-        ? 'All 3 dimensions are corners of a triangle.'
-        : 'All 4 dimensions are corners of a tetrahedron.';
-    } else {
-      pickerNote.textContent = `${dropped.length} dimension${dropped.length === 1 ? '' : 's'} dropped from the shape (still adjustable via its slider) — weight there pulls the point toward the center.`;
-    }
-  }
-
-  // --- Scene geometry: rebuilt whenever the corner count (3 vs 4) changes ---
-  let faceMesh = null, edgesObj = null, faceGridObj = null, internalGridObj = null;
-  let faceList = null; // 4-corner mode only: [{ opposite: 'A', verts: ['B','C','D'] }, ...]
-  let trianglePlane = null; // 3-corner mode only
+  // --- Scene geometry: rebuilt whenever the dimension count changes ---
+  let faceMesh = null, edgesObj = null, faceGridObj = null, internalGridObj = null, vertexDotsObj = null;
+  let faceList = null; // n=4 only: [{ opposite: 0, verts: [1,2,3] }, ...]
+  let trianglePlane = null; // n=3 only
   let gridMode = 'all';
 
   function disposeObj(o) {
     if (!o) return;
     scene.remove(o);
-    o.geometry.dispose();
-    o.material.dispose();
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) o.material.dispose();
+    if (o.children && o.children.length) {
+      o.children.forEach((c) => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+    }
   }
 
   function setGridMode(mode) {
@@ -821,26 +747,10 @@
     });
   });
 
-  function buildSceneGeometry() {
-    disposeObj(faceMesh); disposeObj(edgesObj); disposeObj(faceGridObj); disposeObj(internalGridObj);
-    faceList = null; trianglePlane = null;
-
-    const keys = activeKeys();
-    const isTetra = keys.length === 4;
-
-    let faceDefs;
-    if (isTetra) {
-      const FACES = { A: ['B', 'C', 'D'], B: ['A', 'C', 'D'], C: ['A', 'B', 'D'], D: ['A', 'B', 'C'] };
-      faceList = keys.map(k => ({ opposite: k, verts: FACES[k] }));
-      faceDefs = faceList.map(f => f.verts);
-    } else {
-      trianglePlane = new THREE.Plane().setFromCoplanarPoints(V[keys[0]], V[keys[1]], V[keys[2]]);
-      faceDefs = [keys];
-    }
-
+  function buildFaceMeshAndGrid(faceDefs) {
     const positions = [];
-    faceDefs.forEach(([k0, k1, k2]) => {
-      positions.push(V[k0].x, V[k0].y, V[k0].z, V[k1].x, V[k1].y, V[k1].z, V[k2].x, V[k2].y, V[k2].z);
+    faceDefs.forEach(([i0, i1, i2]) => {
+      positions.push(V[i0].x, V[i0].y, V[i0].z, V[i1].x, V[i1].y, V[i1].z, V[i2].x, V[i2].y, V[i2].z);
     });
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -855,8 +765,8 @@
     scene.add(edgesObj);
 
     const faceGridPoints = [];
-    faceDefs.forEach(([k0, k1, k2]) => {
-      const p0 = V[k0], p1 = V[k1], p2 = V[k2];
+    faceDefs.forEach(([i0, i1, i2]) => {
+      const p0 = V[i0], p1 = V[i1], p2 = V[i2];
       for (let i = 1; i < 10; i++) {
         const t = i / 10;
         const pairs = [[p0, p1, p0, p2], [p1, p0, p1, p2], [p2, p0, p2, p1]];
@@ -870,72 +780,75 @@
       new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.35 })
     );
     scene.add(faceGridObj);
+  }
 
-    // Internal grid lines (tetra only): level sets of each vertex's barycentric weight
-    // at 10% intervals form triangles parallel to the opposite face, shrinking toward it.
+  // Internal grid lines (tetra only): level sets of each vertex's barycentric weight at
+  // 10% intervals form triangles parallel to the opposite face, shrinking toward it.
+  function buildInternalGrid() {
     const internalGridPoints = [];
-    if (isTetra) {
-      faceList.forEach(({ opposite, verts }) => {
-        const K = V[opposite];
-        const others = verts.map(k => V[k]);
-        for (let i = 1; i < 10; i++) {
-          const t = i / 10;
-          const [p0, p1, p2] = others.map(Vi => new THREE.Vector3().lerpVectors(Vi, K, t));
-          internalGridPoints.push(p0, p1, p1, p2, p2, p0);
-        }
-      });
-    }
+    faceList.forEach(({ opposite, verts }) => {
+      const K = V[opposite];
+      const others = verts.map(k => V[k]);
+      for (let i = 1; i < 10; i++) {
+        const t = i / 10;
+        const [p0, p1, p2] = others.map(Vi => new THREE.Vector3().lerpVectors(Vi, K, t));
+        internalGridPoints.push(p0, p1, p1, p2, p2, p0);
+      }
+    });
     internalGridObj = new THREE.LineSegments(
       new THREE.BufferGeometry().setFromPoints(internalGridPoints),
       new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.18 })
     );
     scene.add(internalGridObj);
+  }
 
+  // n>=5: there's no clean face/vertex correspondence anymore (a facet of the hull no
+  // longer means "one dimension is zero"), so we skip face fills and clickable interaction
+  // entirely and just show the skeleton — every vertex, and every edge between them.
+  function buildSkeleton(n) {
+    const dotsGroup = new THREE.Group();
+    for (let i = 0; i < n; i++) {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), new THREE.MeshBasicMaterial({ color: hexColor(dims[i].color) }));
+      mesh.position.copy(V[i]);
+      dotsGroup.add(mesh);
+    }
+    vertexDotsObj = dotsGroup;
+    scene.add(vertexDotsObj);
+
+    const edgePoints = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) edgePoints.push(V[i], V[j]);
+    }
+    edgesObj = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(edgePoints),
+      new THREE.LineBasicMaterial({ color: 0x9a9a94, transparent: true, opacity: 0.5 })
+    );
+    scene.add(edgesObj);
+  }
+
+  function buildSceneGeometry() {
+    disposeObj(faceMesh); disposeObj(edgesObj); disposeObj(faceGridObj); disposeObj(internalGridObj); disposeObj(vertexDotsObj);
+    faceMesh = edgesObj = faceGridObj = internalGridObj = vertexDotsObj = null;
+    faceList = null; trianglePlane = null;
+
+    const n = dims.length;
+    if (n === 3) {
+      trianglePlane = new THREE.Plane().setFromCoplanarPoints(V[0], V[1], V[2]);
+      buildFaceMeshAndGrid([[0, 1, 2]]);
+      hint.textContent = 'drag = rotate · move over the triangle = set point';
+    } else if (n === 4) {
+      const FACES = [[1, 2, 3], [0, 2, 3], [0, 1, 3], [0, 1, 2]];
+      faceList = FACES.map((verts, i) => ({ opposite: i, verts }));
+      buildFaceMeshAndGrid(FACES);
+      buildInternalGrid();
+      hint.textContent = 'drag = rotate · click a face = set point · shift+scroll = pull inward';
+    } else {
+      buildSkeleton(n);
+      hint.textContent = 'drag = rotate · use the sliders to set the point';
+    }
     setGridMode(gridMode);
 
-    hint.textContent = isTetra
-      ? 'drag = rotate · click a face = set point · shift+scroll = pull inward'
-      : 'drag = rotate · move over the triangle = set point';
-
-    CONSTRUCTION_GEOM = {};
-    if (isTetra) {
-      faceList.forEach((f) => {
-        const [k0, k1, k2] = f.verts;
-        const plane = new THREE.Plane().setFromCoplanarPoints(V[k0], V[k1], V[k2]);
-        const X = V[f.opposite];
-        const footFromVertex = plane.projectPoint(X, new THREE.Vector3());
-        CONSTRUCTION_GEOM[f.opposite] = {
-          X,
-          footOf: (p) => plane.projectPoint(p, new THREE.Vector3()),
-          rayHit: (p) => {
-            const dir = new THREE.Vector3().subVectors(p, X);
-            if (dir.lengthSq() < 1e-9) return null;
-            dir.normalize();
-            const ray = new THREE.Ray(X, dir);
-            const Q = new THREE.Vector3();
-            return ray.intersectPlane(plane, Q) ? Q : null;
-          },
-          height: X.distanceTo(footFromVertex),
-        };
-      });
-    } else {
-      keys.forEach((key) => {
-        const [k1, k2] = keys.filter(k => k !== key);
-        const a = V[k1], b = V[k2];
-        const X = V[key];
-        const footFromVertex = footOfPerpendicular3(X, a, b);
-        CONSTRUCTION_GEOM[key] = {
-          X,
-          footOf: (p) => footOfPerpendicular3(p, a, b),
-          rayHit: (p) => {
-            const dir = new THREE.Vector3().subVectors(p, X);
-            if (dir.lengthSq() < 1e-9) return null;
-            return coplanarLineIntersect(X, dir, a, new THREE.Vector3().subVectors(b, a));
-          },
-          height: X.distanceTo(footFromVertex),
-        };
-      });
-    }
+    buildConstructionGeom();
   }
 
   // --- Pointer interaction ---
@@ -960,10 +873,10 @@
     if (!hits.length) return null;
     const hit = hits[0];
     const f = faceList[Math.floor(hit.faceIndex)];
-    const [k0, k1, k2] = f.verts;
-    const { u, v, w } = triBarycentric(hit.point, V[k0], V[k1], V[k2]);
+    const [i0, i1, i2] = f.verts;
+    const { u, v, w } = triBarycentric(hit.point, V[i0], V[i1], V[i2]);
     const face = {};
-    face[k0] = u; face[k1] = v; face[k2] = w;
+    face[i0] = u; face[i1] = v; face[i2] = w;
     return { faceKey: f.opposite, face };
   }
 
@@ -973,9 +886,8 @@
 
   function applyPullState() {
     const { faceKey, face, t } = pullState;
-    const keys = activeKeys();
-    const weights = keys.map(k => k === faceKey ? t : (face[k] || 0) * (1 - t));
-    setCorners(weights);
+    const weights = [0, 1, 2, 3].map(k => k === faceKey ? t : (face[k] || 0) * (1 - t));
+    setWeights(weights);
     refreshDimValues();
   }
 
@@ -999,15 +911,14 @@
       return;
     }
 
-    if (activeKeys().length === 3) {
+    if (dims.length === 3) {
       setNdcFromEvent(ev);
       raycaster.setFromCamera(ndc, camera);
       const hitPt = new THREE.Vector3();
-      const keys = activeKeys();
       if (raycaster.ray.intersectPlane(trianglePlane, hitPt)) {
-        const clamped = clampToTriangle3(hitPt, V[keys[0]], V[keys[1]], V[keys[2]]);
-        const { u, v, w } = triBarycentric(clamped, V[keys[0]], V[keys[1]], V[keys[2]]);
-        setCorners([Math.max(0, u), Math.max(0, v), Math.max(0, w)]);
+        const clamped = clampToTriangle3(hitPt, V[0], V[1], V[2]);
+        const { u, v, w } = triBarycentric(clamped, V[0], V[1], V[2]);
+        setWeights([Math.max(0, u), Math.max(0, v), Math.max(0, w)]);
       }
     }
 
@@ -1020,7 +931,7 @@
 
   renderer.domElement.addEventListener('pointerup', (ev) => {
     dragging = false;
-    if (!dragMoved && activeKeys().length === 4) {
+    if (!dragMoved && dims.length === 4) {
       const picked = pickFacePoint(ev);
       if (picked) {
         pullState = { faceKey: picked.faceKey, face: picked.face, t: 0 };
@@ -1033,7 +944,7 @@
 
   renderer.domElement.addEventListener('wheel', (ev) => {
     ev.preventDefault();
-    if (ev.shiftKey && pullState && activeKeys().length === 4) {
+    if (ev.shiftKey && pullState && dims.length === 4) {
       pullState.t = Math.max(0, Math.min(1, pullState.t + ev.deltaY * 0.0015));
       applyPullState();
       return;
@@ -1136,7 +1047,7 @@
   // init
   buildSceneGeometry();
   renderDims();
-  renderPicker();
+  updateVertexLabels();
   renderLivePoint();
   renderSetPoints();
   animate();
