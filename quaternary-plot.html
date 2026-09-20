@@ -455,7 +455,6 @@
     const foot = v.plane.projectPoint(P, new THREE.Vector3());
     const d = foot.distanceTo(P);
     const value = v.height > 0 ? d / v.height : 0;
-    addLine3(v.X, v.footFromVertex, colorHex, 0.35);
     addLine3(P, foot, colorHex);
     addTick3(foot, colorHex);
     return swatchRow(colorCss, v.upper, `${un(d)} / ${un(v.height)} = ${pct(value)}`);
