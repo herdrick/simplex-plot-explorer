@@ -175,6 +175,50 @@
   }
   #pointList li button:hover { color: var(--set); }
   .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .segmented {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .segmented button {
+    flex: 1;
+    border: none;
+    background: var(--panel);
+    color: var(--ink-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 4px;
+    cursor: pointer;
+    border-left: 1px solid var(--border);
+  }
+  .segmented button:first-child { border-left: none; }
+  .segmented button.active {
+    background: var(--ink);
+    color: white;
+  }
+  .formula {
+    font-size: 12px;
+    color: var(--ink-muted);
+    line-height: 1.5;
+    min-height: 34px;
+  }
+  .formula b { color: var(--ink); }
+  .calc-heading {
+    font-size: 11px;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .calc-heading:first-child { margin-top: 0; }
+  .calc-row {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--ink);
+    padding: 1px 0;
+    line-height: 1.5;
+  }
+  .calc-row .rowhead { white-space: nowrap; }
+  .calc-row .swatch { margin-right: 5px; }
   .tooltip {
     position: absolute;
     pointer-events: none;
@@ -214,6 +258,15 @@
       </div>
 
       <button id="setBtn">Add point (shortcut: 's')</button>
+
+      <div>
+        <div class="segmented">
+          <button data-mode="face">From face</button>
+          <button data-mode="corner">From corner</button>
+          <button data-mode="both" class="active">Both</button>
+        </div>
+        <div class="formula" id="formulaText"></div>
+      </div>
 
       <div>
         <div class="section-title" style="display:flex; justify-content:space-between; margin-bottom:6px;">
@@ -288,6 +341,28 @@
     return new THREE.Vector3().copy(a).addScaledVector(ab, t);
   }
 
+  function footOfPerpendicular3(p, a, b) {
+    const ab = new THREE.Vector3().subVectors(b, a);
+    const len2 = ab.lengthSq();
+    const t = len2 === 0 ? 0 : new THREE.Vector3().subVectors(p, a).dot(ab) / len2;
+    return new THREE.Vector3().copy(a).addScaledVector(ab, t);
+  }
+
+  // Intersection of two coplanar lines p1+t*d1 and p2+s*d2 (the standard closest-approach
+  // formula, exact when the lines are coplanar — true here since every point involved lies
+  // in the triangle's own plane).
+  function coplanarLineIntersect(p1, d1, p2, d2) {
+    const r = new THREE.Vector3().subVectors(p2, p1);
+    const cross1 = new THREE.Vector3().crossVectors(d1, d2);
+    const denom = cross1.lengthSq();
+    if (denom < 1e-9) return null;
+    const crossR2 = new THREE.Vector3().crossVectors(r, d2);
+    const t = crossR2.dot(cross1) / denom;
+    return new THREE.Vector3().copy(p1).addScaledVector(d1, t);
+  }
+
+  function hexColor(css) { return parseInt(css.slice(1), 16); }
+
   function clampToTriangle3(p, A, B, C) {
     const { u, v, w } = triBarycentric(p, A, B, C);
     if (u >= 0 && v >= 0 && w >= 0) return p;
@@ -320,6 +395,106 @@
 
   const setPointsGroup = new THREE.Group();
   scene.add(setPointsGroup);
+
+  // --- Construction overlay: visualizes how each corner's weight is computed ---
+  // Each barycentric weight can be read two equivalent ways:
+  //  - "from face": how far P is from the opposite face (plane, or side in triangle mode),
+  //    relative to the vertex's height
+  //  - "from corner": how far along the vertex-through-P ray P sits before it reaches
+  //    the opposite face
+  const constructionGroup = new THREE.Group();
+  scene.add(constructionGroup);
+  let constructionMode = 'both';
+  let CONSTRUCTION_GEOM = {}; // rebuilt in buildSceneGeometry(), keyed by CORNER_KEYS
+
+  const METHOD_COLOR = { face: '#7c3aed', corner: '#0d9488' };
+  const METHOD_COLOR_HEX = { face: 0x7c3aed, corner: 0x0d9488 };
+  const formulaText = document.getElementById('formulaText');
+  const FACE_TEMPLATE = { true: 'value = distance(P, opposite face) ÷ height from vertex', false: 'value = distance(P, opposite side) ÷ height from vertex' };
+  const CORNER_TEMPLATE = {
+    true: 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P hits the opposite face)',
+    false: 'value = 1 − |vertex→P| ÷ |vertex→Q|  (Q = where vertex-through-P hits the opposite side)',
+  };
+
+  function pct(n) { return Math.round(n * 100) + '%'; }
+  function un(n) { return n.toFixed(2); }
+
+  function swatchRow(color, label, html) {
+    return `<div class="calc-row"><span class="rowhead"><span class="swatch" style="background:${color}"></span><b>${label}</b> =</span> ${html}</div>`;
+  }
+
+  function addLine3(p1, p2, colorHex, opacity) {
+    const geo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+    const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: opacity != null, opacity: opacity != null ? opacity : 1 });
+    constructionGroup.add(new THREE.Line(geo, mat));
+  }
+
+  function addTick3(p, colorHex) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshBasicMaterial({ color: colorHex }));
+    mesh.position.copy(p);
+    constructionGroup.add(mesh);
+  }
+
+  function drawFaceConstruction(geom, label, P, colorHex, colorCss) {
+    const foot = geom.footOf(P);
+    const d = foot.distanceTo(P);
+    const value = geom.height > 0 ? d / geom.height : 0;
+    addLine3(P, foot, colorHex);
+    addTick3(foot, colorHex);
+    return swatchRow(colorCss, label, `${un(d)} / ${un(geom.height)} = ${pct(value)}`);
+  }
+
+  function drawCornerConstruction(geom, label, P, colorHex, colorCss) {
+    const Q = geom.rayHit(P);
+    if (!Q) return '';
+    const dXP = geom.X.distanceTo(P);
+    const dXQ = geom.X.distanceTo(Q);
+    if (dXQ < 1e-9) return '';
+    const value = 1 - dXP / dXQ;
+    addLine3(geom.X, P, colorHex);
+    addLine3(P, Q, colorHex, 0.55);
+    addTick3(Q, colorHex);
+    return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
+  }
+
+  function renderConstruction(pointOverride) {
+    constructionGroup.clear();
+    const src = pointOverride || state;
+    const P = pointFromValues(src);
+    const isTetra = activeKeys().length === 4;
+    const faceRows = [], cornerRows = [];
+
+    activeKeys().forEach((key, i) => {
+      const dim = dimById(pick[i]);
+      const geom = CONSTRUCTION_GEOM[key];
+      if (!dim || !geom) return;
+      if (constructionMode === 'face') {
+        faceRows.push(drawFaceConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
+      } else if (constructionMode === 'corner') {
+        cornerRows.push(drawCornerConstruction(geom, dim.name, P, hexColor(dim.color), dim.color));
+      } else {
+        faceRows.push(drawFaceConstruction(geom, dim.name, P, METHOD_COLOR_HEX.face, METHOD_COLOR.face));
+        cornerRows.push(drawCornerConstruction(geom, dim.name, P, METHOD_COLOR_HEX.corner, METHOD_COLOR.corner));
+      }
+    });
+
+    let html = '';
+    if (faceRows.length) {
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.face}">${FACE_TEMPLATE[isTetra]}</div>${faceRows.join('')}`;
+    }
+    if (cornerRows.length) {
+      html += `<div class="calc-heading" style="color:${METHOD_COLOR.corner}">${CORNER_TEMPLATE[isTetra]}</div>${cornerRows.join('')}`;
+    }
+    formulaText.innerHTML = html;
+  }
+
+  document.querySelectorAll('.segmented button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      constructionMode = btn.dataset.mode;
+      document.querySelectorAll('.segmented button').forEach((b) => b.classList.toggle('active', b === btn));
+      renderConstruction();
+    });
+  });
 
   // Vertex labels (HTML overlay, billboarded via projection each frame)
   const labelEls = {};
@@ -375,6 +550,7 @@
 
   function renderLivePoint() {
     liveSphere.position.copy(pointFromValues(state));
+    renderConstruction();
   }
 
   // --- State mutation ---
@@ -647,6 +823,46 @@
     hint.textContent = isTetra
       ? 'drag = rotate · click a face = set point · shift+scroll = pull inward'
       : 'drag = rotate · move over the triangle = set point';
+
+    CONSTRUCTION_GEOM = {};
+    if (isTetra) {
+      faceList.forEach((f) => {
+        const [k0, k1, k2] = f.verts;
+        const plane = new THREE.Plane().setFromCoplanarPoints(V[k0], V[k1], V[k2]);
+        const X = V[f.opposite];
+        const footFromVertex = plane.projectPoint(X, new THREE.Vector3());
+        CONSTRUCTION_GEOM[f.opposite] = {
+          X,
+          footOf: (p) => plane.projectPoint(p, new THREE.Vector3()),
+          rayHit: (p) => {
+            const dir = new THREE.Vector3().subVectors(p, X);
+            if (dir.lengthSq() < 1e-9) return null;
+            dir.normalize();
+            const ray = new THREE.Ray(X, dir);
+            const Q = new THREE.Vector3();
+            return ray.intersectPlane(plane, Q) ? Q : null;
+          },
+          height: X.distanceTo(footFromVertex),
+        };
+      });
+    } else {
+      keys.forEach((key) => {
+        const [k1, k2] = keys.filter(k => k !== key);
+        const a = V[k1], b = V[k2];
+        const X = V[key];
+        const footFromVertex = footOfPerpendicular3(X, a, b);
+        CONSTRUCTION_GEOM[key] = {
+          X,
+          footOf: (p) => footOfPerpendicular3(p, a, b),
+          rayHit: (p) => {
+            const dir = new THREE.Vector3().subVectors(p, X);
+            if (dir.lengthSq() < 1e-9) return null;
+            return coplanarLineIntersect(X, dir, a, new THREE.Vector3().subVectors(b, a));
+          },
+          height: X.distanceTo(footFromVertex),
+        };
+      });
+    }
   }
 
   // --- Pointer interaction ---
@@ -753,6 +969,18 @@
     updateCamera();
   }, { passive: false });
 
+  function highlightPoint(i) {
+    const mesh = setPointsGroup.children[i];
+    if (mesh) mesh.scale.setScalar(1.6);
+    renderConstruction(setPoints[i]);
+  }
+
+  function unhighlightPoint(i) {
+    const mesh = setPointsGroup.children[i];
+    if (mesh) mesh.scale.setScalar(1);
+    renderConstruction();
+  }
+
   // --- Set points ---
   function recordPoint() {
     const pt = {};
@@ -799,6 +1027,8 @@
       });
       li.appendChild(coords);
       li.appendChild(removeBtn);
+      li.addEventListener('mouseenter', () => highlightPoint(i));
+      li.addEventListener('mouseleave', () => unhighlightPoint(i));
       pointList.appendChild(li);
     });
     countLabel.textContent = setPoints.length;
