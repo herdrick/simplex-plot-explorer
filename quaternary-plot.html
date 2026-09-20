@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quaternary Plot Explorer</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --ink-muted: #6b7280;
+    --border: #e2e2df;
+    --grid: #d8d8d4;
+    --axis: #9a9a94;
+    --live: #2563eb;
+    --live-fill: #2563eb22;
+    --set: #dc6b19;
+    --set-fill: #dc6b1922;
+    --accent-hover: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 48px;
+    gap: 20px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .subtitle {
+    color: var(--ink-muted);
+    font-size: 13px;
+    margin-top: -12px;
+  }
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  #plotWrap {
+    position: relative;
+    touch-action: none;
+    width: 460px;
+    height: 460px;
+    overflow: hidden;
+  }
+  #plotWrap canvas {
+    display: block;
+    border-radius: 8px;
+    cursor: grab;
+  }
+  #plotWrap canvas:active {
+    cursor: grabbing;
+  }
+  .vertex-label {
+    position: absolute;
+    font-size: 13px;
+    font-weight: 600;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.9), 0 -1px 2px rgba(255,255,255,0.9);
+  }
+  .hint {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 11px;
+    color: var(--ink-muted);
+    pointer-events: none;
+    background: rgba(255,255,255,0.7);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .controls {
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .slider-row .label-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .slider-row .label-line .name {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--live);
+  }
+  button#setBtn {
+    background: var(--live);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button#setBtn:hover { background: var(--accent-hover); }
+  #pointList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  #pointList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
+  #pointList li .coords { flex: 1; color: var(--ink-muted); }
+  #pointList li button {
+    border: none;
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  #pointList li button:hover { color: var(--set); }
+  .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--ink);
+    color: white;
+    font-size: 11px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+  }
+</style>
+</head>
+<body>
+  <h1>Quaternary Plot Explorer</h1>
+  <div class="subtitle">Drag to rotate &middot; click a face to place the point &middot; scroll to zoom</div>
+
+  <div class="layout">
+    <div class="panel" id="plotWrap">
+      <div class="tooltip" id="tooltip"></div>
+      <div class="hint">drag = rotate &middot; click face = set point</div>
+    </div>
+
+    <div class="panel controls">
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#c0392b"></span>A</span>
+          <span id="valA">25%</span>
+        </div>
+        <input type="range" id="sliderA" min="0" max="100" value="25">
+      </div>
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#1f6f43"></span>B</span>
+          <span id="valB">25%</span>
+        </div>
+        <input type="range" id="sliderB" min="0" max="100" value="25">
+      </div>
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#22559c"></span>C</span>
+          <span id="valC">25%</span>
+        </div>
+        <input type="range" id="sliderC" min="0" max="100" value="25">
+      </div>
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#8e44ad"></span>D</span>
+          <span id="valD">25%</span>
+        </div>
+        <input type="range" id="sliderD" min="0" max="100" value="25">
+      </div>
+
+      <button id="setBtn">Add point (shortcut: 's')</button>
+
+      <div>
+        <div class="label-line" style="margin-bottom:6px;">
+          <span class="name">Points</span>
+          <span id="countLabel" style="color:var(--ink-muted);">0</span>
+        </div>
+        <ul id="pointList"></ul>
+        <div class="empty-note" id="emptyNote">No points set yet.</div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+(function () {
+  const W = 460, H = 460;
+  const plotWrap = document.getElementById('plotWrap');
+  const tooltip = document.getElementById('tooltip');
+
+  const VERTEX_COLORS = { A: '#c0392b', B: '#1f6f43', C: '#22559c', D: '#8e44ad' };
+  const KEYS = ['a', 'b', 'c', 'd'];
+
+  // --- Regular tetrahedron vertices, centered at origin ---
+  const RAW = {
+    A: new THREE.Vector3(1, 1, 1),
+    B: new THREE.Vector3(1, -1, -1),
+    C: new THREE.Vector3(-1, 1, -1),
+    D: new THREE.Vector3(-1, -1, 1),
+  };
+  const SCALE = 1.6;
+  const V = {};
+  for (const k in RAW) V[k] = RAW[k].clone().multiplyScalar(SCALE);
+
+  // Faces: each keyed by the vertex it's opposite to (i.e. the 3 vertices it contains)
+  const FACES = {
+    A: ['B', 'C', 'D'],
+    B: ['A', 'C', 'D'],
+    C: ['A', 'B', 'D'],
+    D: ['A', 'B', 'C'],
+  };
+
+  function barycentricToPoint3(a, b, c, d) {
+    return new THREE.Vector3()
+      .addScaledVector(V.A, a)
+      .addScaledVector(V.B, b)
+      .addScaledVector(V.C, c)
+      .addScaledVector(V.D, d);
+  }
+
+  // Barycentric coords of point p within triangle (p0,p1,p2)
+  function triBarycentric(p, p0, p1, p2) {
+    const v0 = new THREE.Vector3().subVectors(p1, p0);
+    const v1 = new THREE.Vector3().subVectors(p2, p0);
+    const v2 = new THREE.Vector3().subVectors(p, p0);
+    const d00 = v0.dot(v0), d01 = v0.dot(v1), d11 = v1.dot(v1);
+    const d20 = v2.dot(v0), d21 = v2.dot(v1);
+    const denom = d00 * d11 - d01 * d01;
+    const v = (d11 * d20 - d01 * d21) / denom;
+    const w = (d00 * d21 - d01 * d20) / denom;
+    const u = 1 - v - w;
+    return { u, v, w };
+  }
+
+  // --- Scene setup ---
+  const scene = new THREE.Scene();
+  scene.background = null;
+
+  const camera = new THREE.PerspectiveCamera(35, W / H, 0.1, 100);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(W, H);
+  plotWrap.insertBefore(renderer.domElement, plotWrap.firstChild);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(3, 4, 5);
+  scene.add(dirLight);
+
+  // Tetrahedron faces (translucent) + edges
+  const positions = [];
+  for (const key of Object.keys(FACES)) {
+    const [k0, k1, k2] = FACES[key];
+    positions.push(V[k0].x, V[k0].y, V[k0].z, V[k1].x, V[k1].y, V[k1].z, V[k2].x, V[k2].y, V[k2].z);
+  }
+  const tetraGeom = new THREE.BufferGeometry();
+  tetraGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  tetraGeom.computeVertexNormals();
+
+  const faceMaterial = new THREE.MeshLambertMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.10, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const faceMesh = new THREE.Mesh(tetraGeom, faceMaterial);
+  faceMesh.name = 'faceMesh';
+  scene.add(faceMesh);
+
+  const edgesGeom = new THREE.EdgesGeometry(tetraGeom);
+  const edgesMat = new THREE.LineBasicMaterial({ color: 0x9a9a94 });
+  scene.add(new THREE.LineSegments(edgesGeom, edgesMat));
+
+  // Grid lines on each face, 10% intervals parallel to each edge
+  const gridPoints = [];
+  for (const key of Object.keys(FACES)) {
+    const [k0, k1, k2] = FACES[key].map(k => V[k]);
+    for (let i = 1; i < 10; i++) {
+      const t = i / 10;
+      const pairs = [
+        [k0, k1, k0, k2],
+        [k1, k0, k1, k2],
+        [k2, k0, k2, k1],
+      ];
+      for (const [sa, sb, sc, sd] of pairs) {
+        const p1 = new THREE.Vector3().lerpVectors(sa, sb, t);
+        const p2 = new THREE.Vector3().lerpVectors(sc, sd, t);
+        gridPoints.push(p1, p2);
+      }
+    }
+  }
+  const gridGeom = new THREE.BufferGeometry().setFromPoints(gridPoints);
+  const gridMat = new THREE.LineBasicMaterial({ color: 0xd8d8d4, transparent: true, opacity: 0.7 });
+  scene.add(new THREE.LineSegments(gridGeom, gridMat));
+
+  // Live point
+  const liveSphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.07, 20, 20),
+    new THREE.MeshLambertMaterial({ color: 0x2563eb })
+  );
+  scene.add(liveSphere);
+
+  // Set points group
+  const setPointsGroup = new THREE.Group();
+  scene.add(setPointsGroup);
+
+  // Vertex labels (HTML overlay, billboarded via projection each frame)
+  const labelEls = {};
+  for (const key of Object.keys(V)) {
+    const el = document.createElement('div');
+    el.className = 'vertex-label';
+    el.textContent = key;
+    el.style.color = VERTEX_COLORS[key];
+    plotWrap.appendChild(el);
+    labelEls[key] = el;
+  }
+
+  const camDir = new THREE.Vector3();
+  function updateLabels() {
+    camera.getWorldDirection(camDir);
+    for (const key of Object.keys(V)) {
+      const toVertex = new THREE.Vector3().subVectors(V[key], camera.position);
+      const inFront = toVertex.dot(camDir) > 0;
+      if (!inFront) { labelEls[key].style.display = 'none'; continue; }
+      const p = V[key].clone().project(camera);
+      const x = (p.x * 0.5 + 0.5) * W;
+      const y = (-p.y * 0.5 + 0.5) * H;
+      labelEls[key].style.left = x + 'px';
+      labelEls[key].style.top = y + 'px';
+      labelEls[key].style.display = 'block';
+    }
+  }
+
+  // --- Orbit camera (hand-rolled: drag to rotate, wheel to zoom) ---
+  let radius = 6.2, theta = Math.PI * 0.28, phi = Math.PI * 0.32;
+  function updateCamera() {
+    const sinPhi = Math.sin(phi);
+    camera.position.set(
+      radius * sinPhi * Math.sin(theta),
+      radius * Math.cos(phi),
+      radius * sinPhi * Math.cos(theta)
+    );
+    camera.lookAt(0, 0, 0);
+  }
+  updateCamera();
+
+  // --- State ---
+  let state = { a: 0.25, b: 0.25, c: 0.25, d: 0.25 };
+  const setPoints = [];
+
+  const sliderEls = { a: document.getElementById('sliderA'), b: document.getElementById('sliderB'), c: document.getElementById('sliderC'), d: document.getElementById('sliderD') };
+  const valEls = { a: document.getElementById('valA'), b: document.getElementById('valB'), c: document.getElementById('valC'), d: document.getElementById('valD') };
+  const pointList = document.getElementById('pointList');
+  const countLabel = document.getElementById('countLabel');
+  const emptyNote = document.getElementById('emptyNote');
+
+  function renderLivePoint() {
+    const p = barycentricToPoint3(state.a, state.b, state.c, state.d);
+    liveSphere.position.copy(p);
+  }
+
+  function renderSliders() {
+    const pa = Math.round(state.a * 100);
+    const pb = Math.round(state.b * 100);
+    const pc = Math.round(state.c * 100);
+    const pd = 100 - pa - pb - pc;
+    sliderEls.a.value = pa; sliderEls.b.value = pb; sliderEls.c.value = pc; sliderEls.d.value = pd;
+    valEls.a.textContent = pa + '%';
+    valEls.b.textContent = pb + '%';
+    valEls.c.textContent = pc + '%';
+    valEls.d.textContent = pd + '%';
+  }
+
+  function setState(a, b, c, d) {
+    const sum = a + b + c + d;
+    if (sum > 0) { a /= sum; b /= sum; c /= sum; d /= sum; }
+    state = { a, b, c, d };
+    renderLivePoint();
+    renderSliders();
+  }
+
+  // Slider drag: adjust the other three proportionally to keep sum = 1
+  function onSliderChange(which) {
+    const raw = { a: +sliderEls.a.value / 100, b: +sliderEls.b.value / 100, c: +sliderEls.c.value / 100, d: +sliderEls.d.value / 100 };
+    const newVal = raw[which];
+    const others = KEYS.filter(k => k !== which);
+    const cur = state;
+    const otherSum = others.reduce((s, k) => s + cur[k], 0);
+    const remaining = 1 - newVal;
+    const next = { a: 0, b: 0, c: 0, d: 0 };
+    next[which] = newVal;
+    if (otherSum > 0) {
+      others.forEach(k => { next[k] = cur[k] / otherSum * remaining; });
+    } else {
+      others.forEach(k => { next[k] = remaining / others.length; });
+    }
+    setState(next.a, next.b, next.c, next.d);
+  }
+
+  KEYS.forEach(k => sliderEls[k].addEventListener('input', () => onSliderChange(k)));
+
+  // --- Pointer interaction: drag = orbit, click (no drag) on a face = set point ---
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let dragging = false, dragMoved = false, lastX = 0, lastY = 0;
+
+  function setNdcFromEvent(ev) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  function pickFacePoint(ev) {
+    setNdcFromEvent(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObject(faceMesh, false);
+    if (!hits.length) return null;
+    const hit = hits[0];
+    const faceIdx = Math.floor(hit.faceIndex);
+    const faceKey = Object.keys(FACES)[faceIdx];
+    const [k0, k1, k2] = FACES[faceKey].map(k => V[k]);
+    const { u, v, w } = triBarycentric(hit.point, k0, k1, k2);
+    const bary = { a: 0, b: 0, c: 0, d: 0 };
+    bary[FACES[faceKey][0].toLowerCase()] = u;
+    bary[FACES[faceKey][1].toLowerCase()] = v;
+    bary[FACES[faceKey][2].toLowerCase()] = w;
+    return bary;
+  }
+
+  renderer.domElement.addEventListener('pointerdown', (ev) => {
+    dragging = true; dragMoved = false;
+    lastX = ev.clientX; lastY = ev.clientY;
+    renderer.domElement.setPointerCapture(ev.pointerId);
+  });
+
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if (dragging) {
+      const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
+      if (dragMoved) {
+        theta -= dx * 0.008;
+        phi = Math.max(0.12, Math.min(Math.PI - 0.12, phi - dy * 0.008));
+        updateCamera();
+      }
+      lastX = ev.clientX; lastY = ev.clientY;
+    } else {
+      // Hover: show tooltip on set points
+      setNdcFromEvent(ev);
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObjects(setPointsGroup.children, false);
+      if (hits.length) {
+        const pt = hits[0].object.userData.pt;
+        showTooltip(ev, pt);
+      } else {
+        hideTooltip();
+      }
+    }
+  });
+
+  renderer.domElement.addEventListener('pointerup', (ev) => {
+    dragging = false;
+    if (!dragMoved) {
+      const bary = pickFacePoint(ev);
+      if (bary) setState(bary.a, bary.b, bary.c, bary.d);
+    }
+  });
+
+  renderer.domElement.addEventListener('pointerleave', hideTooltip);
+
+  renderer.domElement.addEventListener('wheel', (ev) => {
+    ev.preventDefault();
+    radius = Math.max(3, Math.min(14, radius + ev.deltaY * 0.004));
+    updateCamera();
+  }, { passive: false });
+
+  // Set Point
+  function recordPoint() {
+    const pt = { a: state.a, b: state.b, c: state.c, d: state.d };
+    setPoints.push(pt);
+    renderSetPoints();
+  }
+
+  function renderSetPoints() {
+    setPointsGroup.clear();
+    setPoints.forEach((pt) => {
+      const p = barycentricToPoint3(pt.a, pt.b, pt.c, pt.d);
+      const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 16, 16),
+        new THREE.MeshLambertMaterial({ color: 0xdc6b19 })
+      );
+      mesh.position.copy(p);
+      mesh.userData.pt = pt;
+      setPointsGroup.add(mesh);
+    });
+
+    pointList.innerHTML = '';
+    setPoints.forEach((pt, i) => {
+      const li = document.createElement('li');
+      const coords = document.createElement('span');
+      coords.className = 'coords';
+      coords.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}% · D ${Math.round(pt.d * 100)}%`;
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', () => {
+        setPoints.splice(i, 1);
+        renderSetPoints();
+      });
+      li.appendChild(coords);
+      li.appendChild(removeBtn);
+      pointList.appendChild(li);
+    });
+
+    countLabel.textContent = setPoints.length;
+    emptyNote.style.display = setPoints.length ? 'none' : 'block';
+  }
+
+  function showTooltip(ev, pt) {
+    const rect = plotWrap.getBoundingClientRect();
+    tooltip.style.left = (ev.clientX - rect.left) + 'px';
+    tooltip.style.top = (ev.clientY - rect.top) + 'px';
+    tooltip.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}% · D ${Math.round(pt.d * 100)}%`;
+    tooltip.style.opacity = '1';
+  }
+  function hideTooltip() { tooltip.style.opacity = '0'; }
+
+  document.getElementById('setBtn').addEventListener('click', recordPoint);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 's' || ev.key === 'S') {
+      ev.preventDefault();
+      recordPoint();
+    }
+  });
+
+  // --- Render loop ---
+  function animate() {
+    requestAnimationFrame(animate);
+    updateLabels();
+    renderer.render(scene, camera);
+  }
+
+  // init
+  renderLivePoint();
+  renderSliders();
+  renderSetPoints();
+  animate();
+})();
+</script>
+</body>
+</html>
