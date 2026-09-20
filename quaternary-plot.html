@@ -283,9 +283,9 @@
 
       <div>
         <div class="segmented">
-          <button data-mode="face">From face</button>
+          <button data-mode="face" class="active">From face</button>
           <button data-mode="corner">From corner</button>
-          <button data-mode="both" class="active">Both</button>
+          <button data-mode="both">Both</button>
         </div>
         <div class="formula" id="formulaText"></div>
       </div>
@@ -473,7 +473,7 @@
   //    the opposite face
   const constructionGroup = new THREE.Group();
   scene.add(constructionGroup);
-  let constructionMode = 'both';
+  let constructionMode = 'face';
 
   const CONSTRUCTION_VERTS = KEYS.map((k) => {
     const upper = k.toUpperCase();
