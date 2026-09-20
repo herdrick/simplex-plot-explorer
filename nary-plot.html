@@ -32,7 +32,6 @@
     gap: 20px;
   }
   h1 { font-size: 18px; font-weight: 600; margin: 0; }
-  .subtitle { color: var(--ink-muted); font-size: 13px; margin-top: -12px; text-align: center; max-width: 620px; }
   .layout {
     display: flex;
     gap: 28px;
@@ -194,7 +193,6 @@
 </head>
 <body>
   <h1>N-ary Plot Explorer</h1>
-  <div class="subtitle" id="subtitle">Any number of dimensions. Pick up to 4 of them to be the corners of the 3D shape — any others are dropped from the shape, but their sliders still hold real weight and pull the point toward the center.</div>
 
   <div class="layout">
     <div class="panel" id="plotWrap">
@@ -251,9 +249,10 @@
     return { id: 'd' + (uid++), name, color };
   }
 
-  let dims = [makeDim('A', PALETTE[0]), makeDim('B', PALETTE[1]), makeDim('C', PALETTE[2])];
-  let state = { [dims[0].id]: 1 / 3, [dims[1].id]: 1 / 3, [dims[2].id]: 1 / 3 };
-  let pick = dims.map(d => d.id); // dim ids occupying the shape's corners, in CORNER_KEYS order
+  let dims = ['A', 'B', 'C', 'D', 'E'].map((name, i) => makeDim(name, PALETTE[i]));
+  let state = {};
+  dims.forEach(d => { state[d.id] = 1 / dims.length; });
+  let pick = defaultPick(); // dim ids occupying the shape's corners, in CORNER_KEYS order
   const setPoints = [];
 
   // Regular tetrahedron vertices, centered at origin (their sum is exactly zero — the key
