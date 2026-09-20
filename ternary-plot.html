@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ternary Plot Explorer</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --ink-muted: #6b7280;
+    --border: #e2e2df;
+    --grid: #d8d8d4;
+    --axis: #9a9a94;
+    --live: #2563eb;
+    --live-fill: #2563eb22;
+    --set: #dc6b19;
+    --set-fill: #dc6b1922;
+    --accent-hover: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 48px;
+    gap: 20px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .subtitle {
+    color: var(--ink-muted);
+    font-size: 13px;
+    margin-top: -12px;
+  }
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  #plotWrap {
+    position: relative;
+    touch-action: none;
+  }
+  svg#plot {
+    display: block;
+    cursor: crosshair;
+  }
+  .controls {
+    width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .slider-row .label-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .slider-row .label-line .name {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--live);
+  }
+  button#setBtn {
+    background: var(--live);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button#setBtn:hover { background: var(--accent-hover); }
+  button#setBtn kbd {
+    background: rgba(255,255,255,0.25);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+  .hint {
+    color: var(--ink-muted);
+    font-size: 12px;
+  }
+  #pointList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  #pointList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
+  #pointList li .coords { flex: 1; color: var(--ink-muted); }
+  #pointList li button {
+    border: none;
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 4px;
+  }
+  #pointList li button:hover { color: var(--set); }
+  .empty-note { color: var(--ink-muted); font-size: 12px; font-style: italic; }
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--ink);
+    color: white;
+    font-size: 11px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+  }
+</style>
+</head>
+<body>
+  <h1>Ternary Plot Explorer</h1>
+  <div class="subtitle">Drag a slider, or move your mouse over the triangle. Press <kbd>S</kbd> or click Set Point to record the current point.</div>
+
+  <div class="layout">
+    <div class="panel" id="plotWrap">
+      <svg id="plot" width="420" height="420" viewBox="0 0 420 420"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+
+    <div class="panel controls">
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#c0392b"></span>A</span>
+          <span id="valA">33%</span>
+        </div>
+        <input type="range" id="sliderA" min="0" max="100" value="33">
+      </div>
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#1f6f43"></span>B</span>
+          <span id="valB">33%</span>
+        </div>
+        <input type="range" id="sliderB" min="0" max="100" value="33">
+      </div>
+      <div class="slider-row">
+        <div class="label-line">
+          <span class="name"><span class="swatch" style="background:#22559c"></span>C</span>
+          <span id="valC">34%</span>
+        </div>
+        <input type="range" id="sliderC" min="0" max="100" value="34">
+      </div>
+
+      <button id="setBtn">Set Point <kbd>S</kbd></button>
+      <div class="hint">Recorded points turn <span style="color:var(--set); font-weight:600;">orange</span> and stay on the plot.</div>
+
+      <div>
+        <div class="label-line" style="margin-bottom:6px;">
+          <span class="name">Set points</span>
+          <span id="countLabel" style="color:var(--ink-muted);">0</span>
+        </div>
+        <ul id="pointList"></ul>
+        <div class="empty-note" id="emptyNote">No points set yet.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const svg = document.getElementById('plot');
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 420, H = 420;
+
+  // Triangle vertices (A top, B bottom-left, C bottom-right), y grows downward
+  const A_V = { x: 210, y: 40 };
+  const B_V = { x: 40,  y: 360 };
+  const C_V = { x: 380, y: 360 };
+
+  function barycentricToPoint(a, b, c) {
+    return {
+      x: a * A_V.x + b * B_V.x + c * C_V.x,
+      y: a * A_V.y + b * B_V.y + c * C_V.y,
+    };
+  }
+
+  // Convert a Cartesian point to barycentric coords wrt A_V,B_V,C_V
+  function pointToBarycentric(p) {
+    const denom = (B_V.y - C_V.y) * (A_V.x - C_V.x) + (C_V.x - B_V.x) * (A_V.y - C_V.y);
+    const a = ((B_V.y - C_V.y) * (p.x - C_V.x) + (C_V.x - B_V.x) * (p.y - C_V.y)) / denom;
+    const b = ((C_V.y - A_V.y) * (p.x - C_V.x) + (A_V.x - C_V.x) * (p.y - C_V.y)) / denom;
+    const c = 1 - a - b;
+    return { a, b, c };
+  }
+
+  function closestPointOnSegment(p, s0, s1) {
+    const vx = s1.x - s0.x, vy = s1.y - s0.y;
+    const wx = p.x - s0.x, wy = p.y - s0.y;
+    const len2 = vx * vx + vy * vy;
+    let t = len2 === 0 ? 0 : (wx * vx + wy * vy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return { x: s0.x + t * vx, y: s0.y + t * vy };
+  }
+
+  // Clamp a point to inside the triangle; returns the closest point.
+  function clampToTriangle(p) {
+    const { a, b, c } = pointToBarycentric(p);
+    if (a >= 0 && b >= 0 && c >= 0) return p;
+    const candidates = [
+      closestPointOnSegment(p, A_V, B_V),
+      closestPointOnSegment(p, B_V, C_V),
+      closestPointOnSegment(p, C_V, A_V),
+    ];
+    let best = candidates[0], bestDist = Infinity;
+    for (const cand of candidates) {
+      const dx = cand.x - p.x, dy = cand.y - p.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; best = cand; }
+    }
+    return best;
+  }
+
+  // --- Static triangle chrome (grid, axes, labels) ---
+  function line(x1, y1, x2, y2, cls) {
+    const el = document.createElementNS(NS, 'line');
+    el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+    el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+    el.setAttribute('class', cls);
+    return el;
+  }
+
+  const gridGroup = document.createElementNS(NS, 'g');
+  gridGroup.setAttribute('stroke', 'var(--grid)');
+  gridGroup.setAttribute('stroke-width', '1');
+  for (let i = 1; i < 10; i++) {
+    const t = i / 10;
+    // lines parallel to each side, at 10% intervals
+    const p1 = { x: A_V.x + (B_V.x - A_V.x) * t, y: A_V.y + (B_V.y - A_V.y) * t };
+    const p2 = { x: A_V.x + (C_V.x - A_V.x) * t, y: A_V.y + (C_V.y - A_V.y) * t };
+    gridGroup.appendChild(line(p1.x, p1.y, p2.x, p2.y, ''));
+
+    const q1 = { x: B_V.x + (A_V.x - B_V.x) * t, y: B_V.y + (A_V.y - B_V.y) * t };
+    const q2 = { x: B_V.x + (C_V.x - B_V.x) * t, y: B_V.y + (C_V.y - B_V.y) * t };
+    gridGroup.appendChild(line(q1.x, q1.y, q2.x, q2.y, ''));
+
+    const r1 = { x: C_V.x + (A_V.x - C_V.x) * t, y: C_V.y + (A_V.y - C_V.y) * t };
+    const r2 = { x: C_V.x + (B_V.x - C_V.x) * t, y: C_V.y + (B_V.y - C_V.y) * t };
+    gridGroup.appendChild(line(r1.x, r1.y, r2.x, r2.y, ''));
+  }
+  svg.appendChild(gridGroup);
+
+  const outline = document.createElementNS(NS, 'polygon');
+  outline.setAttribute('points', `${A_V.x},${A_V.y} ${B_V.x},${B_V.y} ${C_V.x},${C_V.y}`);
+  outline.setAttribute('fill', 'none');
+  outline.setAttribute('stroke', 'var(--axis)');
+  outline.setAttribute('stroke-width', '1.5');
+  svg.appendChild(outline);
+
+  function label(text, x, y, color) {
+    const el = document.createElementNS(NS, 'text');
+    el.setAttribute('x', x); el.setAttribute('y', y);
+    el.setAttribute('text-anchor', 'middle');
+    el.setAttribute('font-size', '13');
+    el.setAttribute('font-weight', '600');
+    el.setAttribute('fill', color);
+    el.textContent = text;
+    svg.appendChild(el);
+  }
+  label('A', A_V.x, A_V.y - 14, '#c0392b');
+  label('B', B_V.x - 14, B_V.y + 18, '#1f6f43');
+  label('C', C_V.x + 14, C_V.y + 18, '#22559c');
+
+  // --- Dynamic layer: set points + live point ---
+  const setPointsGroup = document.createElementNS(NS, 'g');
+  svg.appendChild(setPointsGroup);
+
+  const liveCircle = document.createElementNS(NS, 'circle');
+  liveCircle.setAttribute('r', '7');
+  liveCircle.setAttribute('fill', 'var(--live)');
+  liveCircle.setAttribute('stroke', 'white');
+  liveCircle.setAttribute('stroke-width', '2');
+  svg.appendChild(liveCircle);
+
+  // --- State ---
+  let state = { a: 0.33, b: 0.33, c: 0.34 };
+  const setPoints = [];
+
+  const sliderA = document.getElementById('sliderA');
+  const sliderB = document.getElementById('sliderB');
+  const sliderC = document.getElementById('sliderC');
+  const valA = document.getElementById('valA');
+  const valB = document.getElementById('valB');
+  const valC = document.getElementById('valC');
+  const pointList = document.getElementById('pointList');
+  const countLabel = document.getElementById('countLabel');
+  const emptyNote = document.getElementById('emptyNote');
+  const tooltip = document.getElementById('tooltip');
+  const plotWrap = document.getElementById('plotWrap');
+
+  function renderLivePoint() {
+    const p = barycentricToPoint(state.a, state.b, state.c);
+    liveCircle.setAttribute('cx', p.x);
+    liveCircle.setAttribute('cy', p.y);
+  }
+
+  function renderSliders() {
+    const pa = Math.round(state.a * 100);
+    const pb = Math.round(state.b * 100);
+    let pc = 100 - pa - pb;
+    sliderA.value = pa; sliderB.value = pb; sliderC.value = pc;
+    valA.textContent = pa + '%';
+    valB.textContent = pb + '%';
+    valC.textContent = pc + '%';
+  }
+
+  function setState(a, b, c) {
+    const sum = a + b + c;
+    if (sum > 0) { a /= sum; b /= sum; c /= sum; }
+    state = { a, b, c };
+    renderLivePoint();
+    renderSliders();
+  }
+
+  // Slider drag: adjust the other two proportionally to keep sum = 1
+  function onSliderChange(which) {
+    const pa = +sliderA.value, pb = +sliderB.value, pc = +sliderC.value;
+    let a = pa / 100, b = pb / 100, c = pc / 100;
+    const newVal = which === 'a' ? a : which === 'b' ? b : c;
+    const others = ['a', 'b', 'c'].filter(k => k !== which);
+    const cur = { a: state.a, b: state.b, c: state.c };
+    const otherSum = others.reduce((s, k) => s + cur[k], 0);
+    const remaining = 1 - newVal;
+    const next = { a: 0, b: 0, c: 0 };
+    next[which] = newVal;
+    if (otherSum > 0) {
+      others.forEach(k => { next[k] = cur[k] / otherSum * remaining; });
+    } else {
+      others.forEach(k => { next[k] = remaining / others.length; });
+    }
+    setState(next.a, next.b, next.c);
+  }
+
+  sliderA.addEventListener('input', () => onSliderChange('a'));
+  sliderB.addEventListener('input', () => onSliderChange('b'));
+  sliderC.addEventListener('input', () => onSliderChange('c'));
+
+  // Mouse control over the plot
+  let mouseInPlot = false;
+  svg.addEventListener('pointerenter', () => { mouseInPlot = true; });
+  svg.addEventListener('pointerleave', () => { mouseInPlot = false; });
+  svg.addEventListener('pointermove', (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * (W / rect.width);
+    const y = (ev.clientY - rect.top) * (H / rect.height);
+    const clamped = clampToTriangle({ x, y });
+    const { a, b, c } = pointToBarycentric(clamped);
+    setState(Math.max(0, a), Math.max(0, b), Math.max(0, c));
+  });
+
+  // Set Point
+  function recordPoint() {
+    const pt = { a: state.a, b: state.b, c: state.c };
+    setPoints.push(pt);
+    renderSetPoints();
+  }
+
+  function renderSetPoints() {
+    // svg markers
+    setPointsGroup.innerHTML = '';
+    setPoints.forEach((pt, i) => {
+      const p = barycentricToPoint(pt.a, pt.b, pt.c);
+      const el = document.createElementNS(NS, 'circle');
+      el.setAttribute('cx', p.x);
+      el.setAttribute('cy', p.y);
+      el.setAttribute('r', '6');
+      el.setAttribute('fill', 'var(--set)');
+      el.setAttribute('stroke', 'white');
+      el.setAttribute('stroke-width', '1.5');
+      el.style.cursor = 'pointer';
+      el.addEventListener('mouseenter', (ev) => showTooltip(ev, pt));
+      el.addEventListener('mousemove', (ev) => showTooltip(ev, pt));
+      el.addEventListener('mouseleave', hideTooltip);
+      setPointsGroup.appendChild(el);
+    });
+
+    // list
+    pointList.innerHTML = '';
+    setPoints.forEach((pt, i) => {
+      const li = document.createElement('li');
+      const coords = document.createElement('span');
+      coords.className = 'coords';
+      coords.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}%`;
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '✕';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', () => {
+        setPoints.splice(i, 1);
+        renderSetPoints();
+      });
+      li.appendChild(coords);
+      li.appendChild(removeBtn);
+      pointList.appendChild(li);
+    });
+
+    countLabel.textContent = setPoints.length;
+    emptyNote.style.display = setPoints.length ? 'none' : 'block';
+  }
+
+  function showTooltip(ev, pt) {
+    const rect = plotWrap.getBoundingClientRect();
+    tooltip.style.left = (ev.clientX - rect.left) + 'px';
+    tooltip.style.top = (ev.clientY - rect.top) + 'px';
+    tooltip.textContent = `A ${Math.round(pt.a * 100)}% · B ${Math.round(pt.b * 100)}% · C ${Math.round(pt.c * 100)}%`;
+    tooltip.style.opacity = '1';
+  }
+  function hideTooltip() { tooltip.style.opacity = '0'; }
+
+  document.getElementById('setBtn').addEventListener('click', recordPoint);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 's' || ev.key === 'S') {
+      ev.preventDefault();
+      recordPoint();
+    }
+  });
+
+  // init
+  renderLivePoint();
+  renderSliders();
+  renderSetPoints();
+})();
+</script>
+</body>
+</html>
