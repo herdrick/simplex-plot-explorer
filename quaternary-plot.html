@@ -441,7 +441,7 @@
     }
   }
   const internalGridGeom = new THREE.BufferGeometry().setFromPoints(internalGridPoints);
-  const internalGridMat = new THREE.LineBasicMaterial({ color: 0x8fa6c2, transparent: true, opacity: 0.5 });
+  const internalGridMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
   const internalGridObj = new THREE.LineSegments(internalGridGeom, internalGridMat);
   scene.add(internalGridObj);
 
@@ -564,10 +564,10 @@
     formulaText.innerHTML = html;
   }
 
-  document.querySelectorAll('.segmented button').forEach((btn) => {
+  document.querySelectorAll('.segmented button[data-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
       constructionMode = btn.dataset.mode;
-      document.querySelectorAll('.segmented button').forEach((b) => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.segmented button[data-mode]').forEach((b) => b.classList.toggle('active', b === btn));
       renderConstruction();
     });
   });
