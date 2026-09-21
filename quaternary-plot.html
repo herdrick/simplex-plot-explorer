@@ -428,16 +428,26 @@
   const faceGridObj = new THREE.LineSegments(faceGridGeom, faceGridMat);
   scene.add(faceGridObj);
 
-  // Internal grid lines: for each vertex K, level sets of K's barycentric weight at
-  // 10% intervals form triangles parallel to the opposite face, shrinking toward K.
+  // Internal grid lines: a tetrahedron's 4 vertices pair into 3 pairs of *opposite*
+  // edges (no shared vertex, e.g. AB & CD). A line joining a point on one edge to the
+  // point at the same fraction on its opposite edge can't lie in any face plane (a face
+  // only ever touches one edge of an opposite pair), so these chords genuinely cross
+  // the solid's interior, unlike the (flawed) face-plane triangles this used to draw.
+  const oppositeEdgePairs = [
+    [['A', 'B'], ['C', 'D']],
+    [['A', 'C'], ['B', 'D']],
+    [['A', 'D'], ['B', 'C']],
+  ];
   const internalGridPoints = [];
-  for (const key of Object.keys(FACES)) {
-    const K = V[key];
-    const others = FACES[key].map(k => V[k]);
+  for (const [[e1a, e1b], [e2a, e2b]] of oppositeEdgePairs) {
     for (let i = 1; i < 10; i++) {
       const t = i / 10;
-      const [p0, p1, p2] = others.map(Vi => new THREE.Vector3().lerpVectors(Vi, K, t));
-      internalGridPoints.push(p0, p1, p1, p2, p2, p0);
+      const p = new THREE.Vector3().lerpVectors(V[e1a], V[e1b], t);
+      // Both t and (1-t) pairings, so the chords cross each other through the
+      // interior instead of just running parallel (a fuller "grid" look).
+      const q1 = new THREE.Vector3().lerpVectors(V[e2a], V[e2b], t);
+      const q2 = new THREE.Vector3().lerpVectors(V[e2a], V[e2b], 1 - t);
+      internalGridPoints.push(p, q1, p, q2);
     }
   }
   const internalGridGeom = new THREE.BufferGeometry().setFromPoints(internalGridPoints);
