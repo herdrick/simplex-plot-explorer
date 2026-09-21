@@ -297,10 +297,15 @@
           <span class="name">Gridlines</span>
         </div>
         <div class="segmented">
-          <button data-grid="all" class="active">All gridlines</button>
-          <button data-grid="faces">Gridlines on faces</button>
+          <button data-grid="all">All gridlines</button>
+          <button data-grid="faces" class="active">Gridlines on faces</button>
           <button data-grid="none">None</button>
         </div>
+        <div class="label-line" style="margin-top:8px;">
+          <span class="name">Opacity</span>
+          <span id="gridOpacityVal">40%</span>
+        </div>
+        <input type="range" id="gridOpacitySlider" min="0" max="100" value="40">
       </div>
 
       <div>
@@ -423,8 +428,9 @@
       }
     }
   }
+  const GRID_COLOR = 0x9a9a94;
   const faceGridGeom = new THREE.BufferGeometry().setFromPoints(faceGridPoints);
-  const faceGridMat = new THREE.LineBasicMaterial({ color: 0xe4e4e0, transparent: true, opacity: 0.35 });
+  const faceGridMat = new THREE.LineBasicMaterial({ color: GRID_COLOR, transparent: true, opacity: 0.4 });
   const faceGridObj = new THREE.LineSegments(faceGridGeom, faceGridMat);
   scene.add(faceGridObj);
 
@@ -451,7 +457,7 @@
     }
   }
   const internalGridGeom = new THREE.BufferGeometry().setFromPoints(internalGridPoints);
-  const internalGridMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+  const internalGridMat = new THREE.LineBasicMaterial({ color: GRID_COLOR, transparent: true, opacity: 0.4 });
   const internalGridObj = new THREE.LineSegments(internalGridGeom, internalGridMat);
   scene.add(internalGridObj);
 
@@ -459,12 +465,21 @@
     faceGridObj.visible = mode === 'all' || mode === 'faces';
     internalGridObj.visible = mode === 'all';
   }
-  setGridMode('all');
+  setGridMode('faces');
   document.querySelectorAll('[data-grid]').forEach((btn) => {
     btn.addEventListener('click', () => {
       setGridMode(btn.dataset.grid);
       document.querySelectorAll('[data-grid]').forEach((b) => b.classList.toggle('active', b === btn));
     });
+  });
+
+  const gridOpacitySlider = document.getElementById('gridOpacitySlider');
+  const gridOpacityVal = document.getElementById('gridOpacityVal');
+  gridOpacitySlider.addEventListener('input', () => {
+    const opacity = +gridOpacitySlider.value / 100;
+    faceGridMat.opacity = opacity;
+    internalGridMat.opacity = opacity;
+    gridOpacityVal.textContent = gridOpacitySlider.value + '%';
   });
 
   // Live point
