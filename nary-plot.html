@@ -493,19 +493,6 @@
     return `<div class="calc-row"><span class="rowhead"><span class="swatch" style="background:${color}"></span><b>${label}</b> =</span> ${html}</div>`;
   }
 
-  // A standalone abstract diagram of one row's construction — not tied to the 3D view (which
-  // for n>=5 shows a RadViz shadow unrelated to the true higher-dimensional geometry these
-  // numbers come from). Just the two lengths that actually make up the ratio: the marker's
-  // position out of the full 0%-100% span, nothing more.
-  function miniBar(value, colorCss) {
-    const w = 84, h = 8;
-    const x = Math.max(0, Math.min(1, value)) * w;
-    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="vertical-align:middle;margin-left:7px;">` +
-      `<rect x="0" y="0" width="${w}" height="${h}" rx="4" fill="#e4e4e0"></rect>` +
-      `<rect x="0" y="0" width="${x}" height="${h}" rx="4" fill="${colorCss}"></rect>` +
-      `</svg>`;
-  }
-
   // --- Plain n-dimensional vector math (arrays, not THREE.Vector3) — used for the
   // n>=5 construction, which lives in the simplex's true (n-1)-dim space, not the 3D view.
   function nZeros(n) { return new Array(n).fill(0); }
@@ -559,7 +546,7 @@
     const foot = geom.footOfN(w);
     const d = nNorm(nSub(foot, w));
     const value = geom.height > 0 ? d / geom.height : 0;
-    return swatchRow(colorCss, label, `${un(d)} / ${un(geom.height)} = ${pct(value)}${miniBar(value, colorCss)}`);
+    return swatchRow(colorCss, label, `${un(d)} / ${un(geom.height)} = ${pct(value)}`);
   }
 
   function drawCornerConstructionN(geom, label, w, colorCss) {
@@ -569,7 +556,7 @@
     const dXQ = nNorm(nSub(Q, geom.X));
     if (dXQ < 1e-9) return '';
     const value = 1 - dXP / dXQ;
-    return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}${miniBar(value, colorCss)}`);
+    return swatchRow(colorCss, label, `1 - ${un(dXP)} / ${un(dXQ)} = 1 - ${(dXP / dXQ).toFixed(2)} = ${pct(value)}`);
   }
 
   function buildConstructionGeom() {
